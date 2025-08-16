@@ -10,7 +10,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { User, LogOut, Settings, Zap, Sparkles, Menu, X, BarChart3, Target, Activity } from "lucide-react";
+import { User, LogOut, Settings, Zap, Sparkles, Menu, X, BarChart3, Target, Activity, Brain } from "lucide-react";
 
 export function Navigation() {
   const { data: session, status } = useSession();
@@ -62,12 +62,12 @@ export function Navigation() {
                 <span className="absolute inset-x-0 -bottom-1 h-0.5 bg-gradient-to-r from-emerald-500 to-green-500 transform scale-x-0 group-hover:scale-x-100 transition-transform duration-300 origin-center"></span>
               </Link>
               <Link 
-                href="#pricing" 
+                href="#intelligence" 
                 className="relative text-gray-700 hover:text-emerald-600 transition-all duration-300 font-semibold text-sm group px-4 py-2 rounded-lg hover:bg-emerald-50"
               >
                 <span className="flex items-center">
-                  <Target className="w-4 h-4 mr-2 opacity-60 group-hover:opacity-100 transition-opacity" />
-                  Pricing
+                  <Brain className="w-4 h-4 mr-2 opacity-60 group-hover:opacity-100 transition-opacity" />
+                  AI Intelligence
                 </span>
                 <span className="absolute inset-x-0 -bottom-1 h-0.5 bg-gradient-to-r from-emerald-500 to-green-500 transform scale-x-0 group-hover:scale-x-100 transition-transform duration-300 origin-center"></span>
               </Link>
@@ -154,11 +154,11 @@ export function Navigation() {
                 Features
               </Link>
               <Link
-                href="#pricing"
+                href="#intelligence"
                 className="block px-3 py-2 text-gray-600 hover:text-emerald-600 hover:bg-emerald-50 rounded-md font-medium transition-colors"
                 onClick={() => setIsMobileMenuOpen(false)}
               >
-                Pricing
+                AI Intelligence
               </Link>
               <Link
                 href="#demo"

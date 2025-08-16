@@ -385,6 +385,215 @@ export default function Home() {
         </div>
       </section>
 
+      {/* AI Intelligence Showcase Section */}
+      <section id="intelligence" className="px-4 sm:px-6 lg:px-8 py-24 bg-gradient-to-br from-white via-emerald-50 to-green-50 relative overflow-hidden">
+        {/* Background elements */}
+        <div className="absolute top-20 left-20 w-64 h-64 bg-emerald-200 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-float"></div>
+        <div className="absolute bottom-20 right-20 w-80 h-80 bg-green-200 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-float animation-delay-2000"></div>
+        
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center mb-20">
+            <div className="inline-flex items-center px-6 py-3 rounded-full bg-gradient-to-r from-emerald-100 to-green-100 text-emerald-700 text-sm font-medium mb-8 border border-emerald-200 shadow-lg shadow-emerald-500/10">
+              <Brain className="w-4 h-4 mr-2" />
+              <span className="flex items-center">
+                AI-Powered Intelligence Platform
+                <Sparkles className="w-4 h-4 ml-2 animate-pulse" />
+              </span>
+            </div>
+            
+            <h2 className="text-4xl md:text-6xl font-bold text-gray-900 mb-8 leading-tight">
+              <span className="animate-fade-in-up">Transform data into</span>
+              <span className="block bg-gradient-to-r from-emerald-600 via-green-600 to-teal-600 bg-clip-text text-transparent animate-gradient-x">
+                profitable intelligence
+              </span>
+            </h2>
+            
+            <p className="text-xl md:text-2xl text-gray-600 mb-16 max-w-4xl mx-auto leading-relaxed">
+              Watch our AI extract insights from millions of data points, 
+              <span className="text-emerald-600 font-semibold">predict optimal ad placements</span>, and 
+              <span className="text-emerald-600 font-semibold">maximize your ROI in real-time</span>.
+            </p>
+          </div>
+          
+          {/* Interactive AI Intelligence Dashboard */}
+          <div className="grid lg:grid-cols-2 gap-16 items-center mb-20">
+            <div className="space-y-8">
+              <div className="space-y-6">
+                <div className="flex items-start space-x-4">
+                  <div className="w-12 h-12 bg-gradient-to-br from-emerald-500 to-green-600 rounded-xl flex items-center justify-center shadow-lg shadow-emerald-500/25">
+                    <Database className="h-6 w-6 text-white" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-gray-900 mb-2">Data Extraction & Analysis</h3>
+                    <p className="text-gray-600 leading-relaxed">
+                      Our AI processes millions of data points from social media, news, market trends, and competitor analysis to identify the perfect advertising opportunities.
+                    </p>
+                  </div>
+                </div>
+                
+                <div className="flex items-start space-x-4">
+                  <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/25">
+                    <Target className="h-6 w-6 text-white" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-gray-900 mb-2">Intelligent Ad Placement</h3>
+                    <p className="text-gray-600 leading-relaxed">
+                      Machine learning algorithms predict the highest-converting ad placements based on audience behavior, timing, and contextual relevance.
+                    </p>
+                  </div>
+                </div>
+                
+                <div className="flex items-start space-x-4">
+                  <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-pink-600 rounded-xl flex items-center justify-center shadow-lg shadow-purple-500/25">
+                    <TrendingUp className="h-6 w-6 text-white" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-gray-900 mb-2">Profit Optimization</h3>
+                    <p className="text-gray-600 leading-relaxed">
+                      Real-time decision making that automatically adjusts campaigns to maximize ROI, reduce waste, and increase profitability by up to 340%.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            {/* Interactive AI Dashboard Visualization */}
+            <div className="relative">
+              <div className="bg-white rounded-3xl shadow-2xl p-8 border border-gray-200/60 relative overflow-hidden">
+                {/* AI Dashboard Header */}
+                <div className="flex items-center justify-between mb-8">
+                  <div className="flex items-center space-x-3">
+                    <div className="w-8 h-8 bg-gradient-to-br from-emerald-500 to-green-600 rounded-lg flex items-center justify-center">
+                      <Brain className="h-4 w-4 text-white" />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-gray-900">AI Intelligence Center</h4>
+                      <div className="flex items-center space-x-2">
+                        <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
+                        <span className="text-xs text-emerald-600">Live Analysis Active</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-2xl font-bold text-emerald-600">+340%</div>
+                    <div className="text-xs text-gray-500">ROI Increase</div>
+                  </div>
+                </div>
+                
+                {/* Data Extraction Visualization */}
+                <div className="space-y-6">
+                  <div className="bg-gradient-to-r from-emerald-50 to-green-50 rounded-xl p-4 border border-emerald-100">
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-sm font-medium text-gray-700 flex items-center">
+                        <Database className="w-4 h-4 mr-2 text-emerald-600" />
+                        Data Sources Analyzed
+                      </span>
+                      <span className="text-lg font-bold text-emerald-600">2.4M</span>
+                    </div>
+                    <div className="w-full bg-emerald-200 rounded-full h-2">
+                      <div className="bg-gradient-to-r from-emerald-500 to-green-600 h-2 rounded-full animate-pulse" style={{ width: '94%' }}></div>
+                    </div>
+                  </div>
+                  
+                  {/* Ad Placement Predictions */}
+                  <div className="space-y-3">
+                    <h5 className="font-semibold text-gray-900 flex items-center">
+                      <Target className="w-4 h-4 mr-2 text-blue-600" />
+                      Optimal Ad Placements Identified
+                    </h5>
+                    {[
+                      { platform: 'LinkedIn Tech Posts', score: 96, revenue: '$12.4K' },
+                      { platform: 'Industry Forums', score: 89, revenue: '$8.7K' },
+                      { platform: 'Financial Blogs', score: 84, revenue: '$6.2K' }
+                    ].map((placement, index) => (
+                      <div key={index} className="flex items-center justify-between p-3 bg-blue-50 rounded-lg border border-blue-100">
+                        <div className="flex items-center space-x-3">
+                          <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-lg flex items-center justify-center text-white text-xs font-bold">
+                            {placement.score}
+                          </div>
+                          <span className="text-sm font-medium text-gray-700">{placement.platform}</span>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-sm font-bold text-blue-600">{placement.revenue}</div>
+                          <div className="text-xs text-gray-500">Est. Revenue</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  
+                  {/* Profit Impact Visualization */}
+                  <div className="bg-gradient-to-r from-purple-50 to-pink-50 rounded-xl p-4 border border-purple-100">
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-sm font-medium text-gray-700 flex items-center">
+                        <TrendingUp className="w-4 h-4 mr-2 text-purple-600" />
+                        Campaign Performance
+                      </span>
+                      <span className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded-full font-medium">Real-time</span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-4 text-center">
+                      <div>
+                        <div className="text-lg font-bold text-purple-600">87%</div>
+                        <div className="text-xs text-gray-500">Click Rate</div>
+                      </div>
+                      <div>
+                        <div className="text-lg font-bold text-purple-600">$0.23</div>
+                        <div className="text-xs text-gray-500">Cost/Click</div>
+                      </div>
+                      <div>
+                        <div className="text-lg font-bold text-purple-600">4.2x</div>
+                        <div className="text-xs text-gray-500">ROAS</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Floating AI indicators */}
+                <div className="absolute -top-3 -right-3 w-12 h-12 bg-gradient-to-br from-emerald-500 to-green-600 rounded-full flex items-center justify-center shadow-lg shadow-emerald-500/25 animate-bounce">
+                  <Sparkles className="w-6 h-6 text-white" />
+                </div>
+                <div className="absolute -bottom-3 -left-3 w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-full flex items-center justify-center shadow-lg shadow-blue-500/25 animate-pulse">
+                  <Bot className="w-5 h-5 text-white" />
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          {/* AI Decision Making Process */}
+          <div className="text-center">
+            <h3 className="text-2xl md:text-3xl font-bold text-gray-900 mb-8">
+              How AI <span className="text-emerald-600">Maximizes Your Profits</span>
+            </h3>
+            <div className="grid md:grid-cols-4 gap-8">
+              {[
+                { icon: Database, title: 'Extract', desc: 'Analyze millions of data points' },
+                { icon: Brain, title: 'Process', desc: 'AI identifies patterns & opportunities' },
+                { icon: Target, title: 'Predict', desc: 'Forecast optimal placements' },
+                { icon: TrendingUp, title: 'Profit', desc: 'Maximize ROI automatically' }
+              ].map((step, index) => (
+                <div key={index} className="relative">
+                  <div className="flex flex-col items-center space-y-4">
+                    <div className="w-16 h-16 bg-gradient-to-br from-emerald-500 to-green-600 rounded-2xl flex items-center justify-center shadow-lg shadow-emerald-500/25 group-hover:shadow-emerald-500/40 transition-all duration-300">
+                      <step.icon className="w-8 h-8 text-white" />
+                    </div>
+                    <div className="text-center">
+                      <h4 className="font-bold text-gray-900 mb-2">{step.title}</h4>
+                      <p className="text-sm text-gray-600">{step.desc}</p>
+                    </div>
+                  </div>
+                  {index < 3 && (
+                    <div className="hidden md:block absolute top-8 left-full w-full">
+                      <div className="flex items-center justify-center">
+                        <ArrowRight className="w-6 h-6 text-emerald-500 animate-pulse" />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+      
       {/* Features Section */}
       <section id="features" className="px-4 sm:px-6 lg:px-8 py-16">
         <div className="max-w-6xl mx-auto">
@@ -521,7 +730,7 @@ export default function Home() {
       </section>
 
       {/* Pricing Section */}
-      <section id="pricing" className="px-4 sm:px-6 lg:px-8 py-16">
+      <section className="px-4 sm:px-6 lg:px-8 py-16">
         <div className="max-w-6xl mx-auto">
           <div className="bg-white rounded-3xl p-8 md:p-16 shadow-sm">
             <div className="text-center mb-20">

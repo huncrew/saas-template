@@ -10,14 +10,14 @@ interface LogoImageProps {
   fallbackText?: string;
 }
 
-// Direct logo URLs for financial companies - using reliable CDN sources
+// Reliable logo URLs for financial companies using multiple trusted sources
 const logoMap: Record<string, string> = {
-  "goldman-sachs": "https://cdn.jsdelivr.net/npm/simple-icons@v9/icons/goldmansachs.svg",
-  "jpmorgan": "https://cdn.jsdelivr.net/npm/simple-icons@v9/icons/jpmorgan.svg",
-  "morgan-stanley": "https://cdn.jsdelivr.net/npm/simple-icons@v9/icons/morganstanley.svg", 
-  "blackrock": "https://cdn.jsdelivr.net/npm/simple-icons@v9/icons/blackrock.svg",
-  "vanguard": "https://vectorwiki.com/images/thumb/b/b8/Vanguard_%28company%29.svg/1200px-Vanguard_%28company%29.svg.png",
-  "fidelity": "https://logos-world.net/wp-content/uploads/2021/02/Fidelity-Logo.png"
+  "goldman-sachs": "https://upload.wikimedia.org/wikipedia/commons/6/61/Goldman_Sachs.svg",
+  "jpmorgan": "https://upload.wikimedia.org/wikipedia/commons/2/25/JPMorgan_Chase_Logo_2008.svg",
+  "morgan-stanley": "https://upload.wikimedia.org/wikipedia/commons/e/e9/Morgan_Stanley_Logo_2021.svg", 
+  "blackrock": "https://upload.wikimedia.org/wikipedia/commons/e/e6/BlackRock_logo.svg",
+  "vanguard": "https://upload.wikimedia.org/wikipedia/commons/8/8c/Vanguard_logo.svg",
+  "fidelity": "https://upload.wikimedia.org/wikipedia/commons/f/f7/Fidelity_Investments_logo.svg"
 };
 
 export function LogoImage({ 

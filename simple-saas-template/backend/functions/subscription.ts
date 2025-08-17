@@ -26,6 +26,13 @@ export const handler = async (
     const queryParameters = event.queryStringParameters || {};
     const userId = pathParameters.userId || queryParameters.userId;
 
+    console.log('Environment check:', {
+      NODE_ENV: process.env.NODE_ENV,
+      DATABASE_TABLE_NAME: process.env.DATABASE_TABLE_NAME,
+      AWS_REGION: process.env.AWS_REGION,
+      userId: userId
+    });
+
     if (!userId) {
       return {
         statusCode: 400,
@@ -33,6 +40,23 @@ export const handler = async (
         body: JSON.stringify({
           success: false,
           error: 'User ID is required',
+        }),
+      };
+    }
+
+    // For testing - return mock data without DB call
+    if (!process.env.DATABASE_TABLE_NAME) {
+      console.log('DATABASE_TABLE_NAME not found, returning mock data');
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          success: true,
+          data: {
+            subscription: null,
+            subscriptionStatus: 'inactive',
+            hasActiveSubscription: false,
+          },
         }),
       };
     }
@@ -63,6 +87,7 @@ export const handler = async (
       body: JSON.stringify({
         success: false,
         error: 'Internal server error',
+        debug: process.env.NODE_ENV === 'development' ? error.message : undefined
       }),
     };
   }

@@ -3,8 +3,11 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { apiClient } from "@/lib/api";
+import { SubscriptionStatus } from "@/types";
 import { 
   LayoutDashboard, 
   Brain, 
@@ -16,7 +19,11 @@ import {
   ChevronLeft,
   ChevronRight,
   Zap,
-  Activity
+  Activity,
+  Lock,
+  Crown,
+  BarChart3,
+  Users
 } from "lucide-react";
 
 const navigation = [
@@ -25,26 +32,45 @@ const navigation = [
     href: "/dashboard",
     icon: LayoutDashboard,
     badge: null,
+    premium: false,
   },
   {
     name: "Intelligence",
     href: "/dashboard/intelligence",
     icon: Brain,
     badge: "AI",
+    premium: false,
   },
   {
-    name: "Analytics",
+    name: "Advanced Analytics",
     href: "/dashboard/analytics", 
-    icon: TrendingUp,
-    badge: null,
+    icon: BarChart3,
+    badge: "PRO",
+    premium: true,
+  },
+  {
+    name: "Team Management",
+    href: "/dashboard/team",
+    icon: Users,
+    badge: "PRO",
+    premium: true,
   },
   {
     name: "Settings",
     href: "/dashboard/settings",
     icon: Settings,
     badge: null,
+    premium: false,
   },
 ];
+
+interface NavigationItem {
+  name: string;
+  href: string;
+  icon: any;
+  badge: string | null;
+  premium: boolean;
+}
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
@@ -53,7 +79,10 @@ interface DashboardLayoutProps {
 export function DashboardLayout({ children }: DashboardLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [subscriptionStatus, setSubscriptionStatus] = useState<SubscriptionStatus | null>(null);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const pathname = usePathname();
+  const { data: session } = useSession();
 
   // Auto-collapse on smaller screens
   useEffect(() => {
@@ -66,6 +95,33 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  // Check subscription status
+  useEffect(() => {
+    async function checkSubscription() {
+      if (!session?.user?.id) return;
+
+      try {
+        const response = await apiClient.getSubscriptionStatus(session.user.id);
+        if (response.success && response.data) {
+          setSubscriptionStatus(response.data);
+        }
+      } catch (error) {
+        console.error('Error checking subscription:', error);
+      }
+    }
+
+    checkSubscription();
+  }, [session?.user?.id]);
+
+  const handlePremiumClick = (e: React.MouseEvent, href: string) => {
+    e.preventDefault();
+    if (!subscriptionStatus?.hasActiveSubscription) {
+      setShowUpgradeModal(true);
+    } else {
+      window.location.href = href;
+    }
+  };
 
   return (
     <div className="flex h-screen bg-gradient-to-br from-slate-50 to-gray-100">
@@ -147,6 +203,85 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
           <div className="space-y-1">
             {navigation.map((item) => {
               const isActive = pathname === item.href;
+              const isPremium = item.premium;
+              const hasAccess = !isPremium || subscriptionStatus?.hasActiveSubscription;
+              
+              const linkContent = (
+                <>
+                  {/* Animated background for active state */}
+                  {isActive && hasAccess && (
+                    <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/10 to-green-500/10 opacity-50" />
+                  )}
+                  
+                  {/* Green accent strip */}
+                  {isActive && hasAccess && (
+                    <div className="absolute left-0 top-2 bottom-2 w-1 bg-gradient-to-b from-emerald-500 to-green-600 rounded-r-full shadow-sm" />
+                  )}
+                  
+                  <div className={cn(
+                    "flex items-center justify-center w-10 h-10 rounded-lg mr-3 transition-all duration-200 relative",
+                    isActive && hasAccess
+                      ? "bg-gradient-to-br from-emerald-500 to-green-600 shadow-lg shadow-emerald-500/25" 
+                      : isPremium && !hasAccess
+                      ? "bg-gradient-to-br from-gray-300 to-gray-400"
+                      : "bg-gray-100 group-hover:bg-gray-200"
+                  )}>
+                    <item.icon className={cn(
+                      "h-5 w-5 transition-all duration-200",
+                      isActive && hasAccess 
+                        ? "text-white" 
+                        : isPremium && !hasAccess
+                        ? "text-gray-500"
+                        : "text-gray-500 group-hover:text-gray-700"
+                    )} />
+                    {isPremium && !hasAccess && (
+                      <Lock className="absolute -top-1 -right-1 h-3 w-3 text-gray-600 bg-white rounded-full p-0.5" />
+                    )}
+                  </div>
+                  
+                  {!sidebarCollapsed && (
+                    <div className="flex items-center justify-between flex-1">
+                      <span className={cn(
+                        "relative z-10",
+                        isPremium && !hasAccess && "text-gray-500"
+                      )}>{item.name}</span>
+                      <div className="flex items-center space-x-2">
+                        {item.badge && (
+                          <span className={cn(
+                            "px-2 py-1 text-xs font-medium rounded-full",
+                            isActive && hasAccess
+                              ? "bg-emerald-600 text-white" 
+                              : isPremium && item.badge === "PRO"
+                              ? "bg-gradient-to-r from-purple-500 to-indigo-600 text-white"
+                              : "bg-gray-200 text-gray-600 group-hover:bg-gray-300"
+                          )}>
+                            {item.badge}
+                          </span>
+                        )}
+                        {isPremium && !hasAccess && (
+                          <Lock className="h-3 w-3 text-gray-500" />
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </>
+              );
+              
+              if (isPremium && !hasAccess) {
+                return (
+                  <button
+                    key={item.name}
+                    onClick={(e) => handlePremiumClick(e, item.href)}
+                    className={cn(
+                      "group flex items-center px-3 py-3 text-sm font-medium rounded-xl transition-all duration-200 relative overflow-hidden w-full text-left",
+                      "text-gray-500 hover:bg-gray-50 cursor-pointer"
+                    )}
+                  >
+                    {linkContent}
+                  </button>
+                );
+              }
+              
               return (
                 <Link
                   key={item.name}
@@ -158,63 +293,32 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                       : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
                   )}
                 >
-                  {/* Animated background for active state */}
-                  {isActive && (
-                    <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/10 to-green-500/10 opacity-50" />
-                  )}
-                  
-                  {/* Green accent strip */}
-                  {isActive && (
-                    <div className="absolute left-0 top-2 bottom-2 w-1 bg-gradient-to-b from-emerald-500 to-green-600 rounded-r-full shadow-sm" />
-                  )}
-                  
-                  <div className={cn(
-                    "flex items-center justify-center w-10 h-10 rounded-lg mr-3 transition-all duration-200",
-                    isActive 
-                      ? "bg-gradient-to-br from-emerald-500 to-green-600 shadow-lg shadow-emerald-500/25" 
-                      : "bg-gray-100 group-hover:bg-gray-200"
-                  )}>
-                    <item.icon className={cn(
-                      "h-5 w-5 transition-all duration-200",
-                      isActive ? "text-white" : "text-gray-500 group-hover:text-gray-700"
-                    )} />
-                  </div>
-                  
-                  {!sidebarCollapsed && (
-                    <div className="flex items-center justify-between flex-1">
-                      <span className="relative z-10">{item.name}</span>
-                      {item.badge && (
-                        <span className={cn(
-                          "px-2 py-1 text-xs font-medium rounded-full",
-                          isActive 
-                            ? "bg-emerald-600 text-white" 
-                            : "bg-gray-200 text-gray-600 group-hover:bg-gray-300"
-                        )}>
-                          {item.badge}
-                        </span>
-                      )}
-                    </div>
-                  )}
+                  {linkContent}
                 </Link>
               );
             })}
           </div>
         </nav>
 
-        {/* Premium features section */}
-        {!sidebarCollapsed && (
+        {/* Premium upgrade section */}
+        {!sidebarCollapsed && !subscriptionStatus?.hasActiveSubscription && (
           <div className="mt-8 mx-3">
             <div className="bg-gradient-to-br from-purple-50 to-indigo-50 rounded-xl p-4 border border-purple-100">
               <div className="flex items-center space-x-2 mb-2">
                 <div className="w-6 h-6 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-lg flex items-center justify-center">
-                  <Zap className="h-3 w-3 text-white" />
+                  <Crown className="h-3 w-3 text-white" />
                 </div>
-                <span className="text-sm font-semibold text-purple-900">Premium AI</span>
+                <span className="text-sm font-semibold text-purple-900">Unlock Premium</span>
               </div>
               <p className="text-xs text-purple-700 mb-3">
-                Unlock advanced analytics and real-time insights
+                Access advanced analytics, team management, and priority support
               </p>
-              <Button size="sm" className="w-full bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700 text-white shadow-lg">
+              <Button 
+                size="sm" 
+                className="w-full bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700 text-white shadow-lg"
+                onClick={() => setShowUpgradeModal(true)}
+              >
+                <Crown className="h-3 w-3 mr-1" />
                 Upgrade Now
               </Button>
             </div>
@@ -266,6 +370,48 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
         <main className="flex-1 overflow-auto">
           {children}
         </main>
+        
+        {/* Upgrade Modal */}
+        {showUpgradeModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center">
+            <div 
+              className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+              onClick={() => setShowUpgradeModal(false)}
+            />
+            <div className="relative bg-white rounded-2xl p-8 max-w-md w-full mx-4 shadow-2xl">
+              <div className="text-center">
+                <div className="w-16 h-16 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Crown className="h-8 w-8 text-white" />
+                </div>
+                <h3 className="text-2xl font-bold text-gray-900 mb-2">
+                  Unlock Premium Features
+                </h3>
+                <p className="text-gray-600 mb-6">
+                  Upgrade to access advanced analytics, team management, and priority support.
+                </p>
+                <div className="space-y-3">
+                  <Button 
+                    className="w-full bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700 text-white"
+                    onClick={() => {
+                      setShowUpgradeModal(false);
+                      window.location.href = '/pricing';
+                    }}
+                  >
+                    <Crown className="h-4 w-4 mr-2" />
+                    View Pricing Plans
+                  </Button>
+                  <Button 
+                    variant="outline" 
+                    className="w-full"
+                    onClick={() => setShowUpgradeModal(false)}
+                  >
+                    Maybe Later
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

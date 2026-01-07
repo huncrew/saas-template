@@ -2,6 +2,7 @@
 
 # dependencies
 /node_modules
+/frontend/node_modules
 /.pnp
 .pnp.*
 .yarn/*
@@ -14,8 +15,8 @@
 /coverage
 
 # next.js
-/.next/
-/out/
+/frontend/.next/
+/frontend/out/
 
 # production
 /build
@@ -23,6 +24,7 @@
 # misc
 .DS_Store
 *.pem
+*.zip
 
 # debug
 npm-debug.log*
@@ -38,10 +40,17 @@ yarn-error.log*
 
 # typescript
 *.tsbuildinfo
-next-env.d.ts
 
 # sst
 .sst
 
 # open-next
 .open-next
+
+# terraform
+*.tfstate
+*.tfstate.*
+infra/terraform/.terraform/
+
+# AI Context (track for collaboration)
+!.ai-context/

@@ -1,0 +1,4 @@
+- Deliver a Terraform + Python serverless backend that mirrors prior SST routes.
+- Preserve existing Next.js + Stripe/Auth UX.
+- Provide clear docs and acceptance tests.
+- Enable rapid AI experimentation without compromising compliance requirements.

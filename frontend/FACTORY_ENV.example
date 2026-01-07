@@ -1,0 +1,36 @@
+# Factory frontend (Next.js) - example environment
+#
+# Copy to a local file for dev:
+#   cp FACTORY_ENV.example .env.local
+#
+# Note: env files like `.env*` may be ignored by some tooling; this file is committed as a reference.
+
+# ---- Local dev convenience ----
+# Dev-only auth bypass for /projects and Factory API routes (do not use in prod)
+FACTORY_DEV_NO_AUTH=1
+# Optional: show a banner in the UI when dev mode is on
+NEXT_PUBLIC_FACTORY_DEV_NO_AUTH=1
+
+# ---- Orchestrator (projects/builds) ----
+# Use a deployed orchestrator (ALB) or local FastAPI (e.g. http://localhost:8000)
+ORCHESTRATOR_API_URL=
+NEXT_PUBLIC_ORCHESTRATOR_API_URL=
+
+# ---- Backend API Gateway (AI, Stripe, etc.) ----
+# Recommended: server-side base URL used by Next.js route handlers
+BACKEND_API_URL=
+# Optional: client-visible base URL (also used by some existing routes)
+NEXT_PUBLIC_API_BASE_URL=
+
+# ---- Clerk (only needed when FACTORY_DEV_NO_AUTH is not enabled) ----
+# Get these from the Clerk Dashboard.
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=
+CLERK_SECRET_KEY=
+# Recommended routing defaults
+CLERK_SIGN_IN_URL=/auth/signin
+CLERK_SIGN_UP_URL=/auth/signup
+CLERK_AFTER_SIGN_IN_URL=/projects
+CLERK_AFTER_SIGN_UP_URL=/projects
+
+
+

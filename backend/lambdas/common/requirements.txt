@@ -1,0 +1,3 @@
+boto3==1.34.89
+botocore==1.34.89
+typing-extensions==4.11.0

@@ -1,0 +1,21 @@
+version: 1
+applications:
+  - appRoot: frontend
+    frontend:
+      phases:
+        preBuild:
+          commands:
+            - npm ci --no-audit --no-fund
+        build:
+          commands:
+            - npm run build
+      artifacts:
+        # Amplify Hosting for Next.js uses .next for SSR
+        baseDirectory: .next
+        files:
+          - '**/*'
+      cache:
+        paths:
+          - node_modules/**/*
+          - .next/cache/**/*
+

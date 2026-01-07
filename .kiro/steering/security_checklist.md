@@ -1,0 +1,5 @@
+- KMS for S3 if handling sensitive docs.
+- SSM Parameter Store for secrets/config; no plaintext secrets in TF/ENV.
+- IAM: function-scoped permissions only.
+- Enforce TLS everywhere; prefer HTTPS endpoints and signed URLs.
+- Log audit events for AI interactions when persistence is introduced.

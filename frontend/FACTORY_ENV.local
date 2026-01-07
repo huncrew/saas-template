@@ -1,0 +1,24 @@
+# Local dev environment for Factory (committed for convenience)
+# If you need a clean template instead, see `FACTORY_ENV.example`.
+
+FACTORY_DEV_NO_AUTH=1
+NEXT_PUBLIC_FACTORY_DEV_NO_AUTH=1
+
+# Live AWS orchestrator (ECS/Fargate behind ALB)
+ORCHESTRATOR_API_URL=http://factory-dev-factory-75479547.us-east-1.elb.amazonaws.com
+NEXT_PUBLIC_ORCHESTRATOR_API_URL=http://factory-dev-factory-75479547.us-east-1.elb.amazonaws.com
+
+# Live AWS API Gateway base URL (Lambda handlers like /ai/generate)
+BACKEND_API_URL=https://qh14okywbi.execute-api.us-east-1.amazonaws.com/dev
+NEXT_PUBLIC_API_BASE_URL=https://qh14okywbi.execute-api.us-east-1.amazonaws.com/dev
+
+# Clerk (not needed when FACTORY_DEV_NO_AUTH=1)
+# NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=
+# CLERK_SECRET_KEY=
+# CLERK_SIGN_IN_URL=/auth/signin
+# CLERK_SIGN_UP_URL=/auth/signup
+# CLERK_AFTER_SIGN_IN_URL=/projects
+# CLERK_AFTER_SIGN_UP_URL=/projects
+
+
+

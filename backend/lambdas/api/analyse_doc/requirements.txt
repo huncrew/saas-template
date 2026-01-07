@@ -1,0 +1,2 @@
+-c ../../common/constraints.txt
+-r ../../common/requirements.txt

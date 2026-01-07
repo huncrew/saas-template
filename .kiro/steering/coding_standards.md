@@ -1,0 +1,4 @@
+- Python: 3.11, type hints, black+ruff, pytest.
+- Terraform: `terraform fmt`, explicit provider versions, no wildcards in IAM.
+- JS/TS: keep existing lints; avoid breaking FE contracts.
+- Prefer pure functions in Lambdas; limit shared state and cache external calls prudently.

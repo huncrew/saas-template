@@ -1,0 +1,6 @@
+- [ ] `terraform validate`/`plan` clean
+- [ ] `make build` generates zips
+- [ ] Endpoints live and match spec
+- [ ] Docs updated
+- [ ] Least-privilege IAM verified
+- [ ] Python tests & linters pass

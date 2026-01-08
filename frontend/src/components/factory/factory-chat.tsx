@@ -4,10 +4,10 @@ import { useMemo, useRef, useState } from "react";
 import { useUser } from "@clerk/nextjs";
 import { toast } from "sonner";
 import { factoryApi } from "@/lib/factory-api";
-import type { FactoryBuild, FactoryProjectChatResponse } from "@/types/factory";
+import type { FactoryBuild, FactoryChatMessage, FactoryProjectChatResponse } from "@/types/factory";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Bot, Check, Loader2, Send, Sparkles, User } from "lucide-react";
+import { Bot, Check, Loader2, Play, Send, Sparkles, User } from "lucide-react";
 
 type Message = {
   id: string;
@@ -33,11 +33,36 @@ export function FactoryChat({
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [autoPreview, setAutoPreview] = useState(true);
+  const [autoPreview, setAutoPreview] = useState(false);
+  const [isBuilding, setIsBuilding] = useState(false);
   const [pending, setPending] = useState<FactoryProjectChatResponse | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
 
   const canSend = useMemo(() => input.trim().length > 0 && !isLoading, [input, isLoading]);
+  const followups = pending?.followups || [];
+  const hasFollowups = followups.length > 0;
+  const readyForBuild = pending?.suggested_action === "build_preview" && !hasFollowups;
+
+  async function startPreviewBuild(autoTrigger = false) {
+    if (isBuilding) return false;
+    setIsBuilding(true);
+    try {
+      const res = await factoryApi.createPreviewBuild(projectId);
+      if (res.data) {
+        onPreviewBuildStarted?.(res.data);
+        toast.success(autoTrigger ? "Preview build started automatically" : "Preview build started");
+        return true;
+      }
+      throw new Error("Build response missing");
+    } catch (e: unknown) {
+      console.error(e);
+      const msg = e instanceof Error && e.message ? e.message : "Failed to start preview build";
+      toast.error(msg);
+      return false;
+    } finally {
+      setIsBuilding(false);
+    }
+  }
 
   async function send(prompt: string) {
     if (!prompt.trim() || isLoading) return;
@@ -53,24 +78,30 @@ export function FactoryChat({
     setPending(null);
 
     try {
-      const res = await factoryApi.chatProject(projectId, { message: prompt.trim(), auto_preview: autoPreview });
+      const historyPayload: FactoryChatMessage[] = [...messages, userMsg].map((m) => ({
+        role: m.role,
+        content: m.content,
+      }));
+      const res = await factoryApi.chatProject(projectId, {
+        message: prompt.trim(),
+        auto_preview: autoPreview,
+        history: historyPayload,
+      });
       const data = res.data;
       if (!data) throw new Error("Chat failed");
 
       const aiMsg: Message = {
         id: `a_${Date.now()}`,
         role: "assistant",
-        content: data.assistant?.content || "Ok.",
+        content: data.assistant?.content?.trim() || "Ok.",
         createdAt: Date.now(),
       };
       setMessages((prev) => [...prev, aiMsg]);
       setPending(data);
 
-      // Auto-trigger preview when orchestrator suggests it.
-      if (autoPreview && data.suggested_action === "build_preview") {
-        const b = await factoryApi.createPreviewBuild(projectId);
-        if (b.data) onPreviewBuildStarted?.(b.data);
-        toast.success("Preview build started");
+      const readyForAutoBuild = autoPreview && data.suggested_action === "build_preview" && !(data.followups?.length);
+      if (readyForAutoBuild) {
+        await startPreviewBuild(true);
       }
 
       queueMicrotask(() => {
@@ -103,7 +134,7 @@ export function FactoryChat({
         </div>
       </div>
 
-      <div ref={listRef} className="flex-1 overflow-y-auto px-4 py-4 bg-[#fafafa]">
+      <div ref={listRef} className="flex-1 overflow-y-auto px-4 py-4 bg-[#fafafa] min-h-0">
         {messages.length === 0 ? (
           <div className="pt-6">
             <div className="rounded-2xl border bg-white p-4">
@@ -139,13 +170,13 @@ export function FactoryChat({
                     </div>
                   ) : null}
                   <div
-                    className={`rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed shadow-sm ${
+                    className={`rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed shadow-sm max-w-full ${
                       m.role === "user"
                         ? "bg-emerald-600 text-white"
                         : "bg-white border text-gray-900"
                     }`}
                   >
-                    {m.content}
+                    <div className="whitespace-pre-wrap break-words">{m.content}</div>
                   </div>
                   {m.role === "user" ? (
                     <div className="h-7 w-7 rounded-full bg-gray-100 text-gray-700 flex items-center justify-center">
@@ -175,7 +206,7 @@ export function FactoryChat({
         )}
       </div>
 
-      <div className="border-t bg-white p-3">
+      <div className="border-t bg-white p-3 flex-shrink-0 max-h-[40%] overflow-y-auto">
         <form
           className="flex items-center gap-2"
           onSubmit={(e) => {
@@ -216,22 +247,78 @@ export function FactoryChat({
           </div>
         </div>
 
-        {pending?.followups?.length ? (
+        {hasFollowups ? (
           <div className="mt-3 rounded-xl border bg-gray-50 p-3">
             <div className="text-xs font-medium text-gray-900">Quick questions</div>
+            <p className="mt-1 text-[11px] text-gray-600">
+              Answer these so the builder has enough detail before we run a preview.
+            </p>
             <ul className="mt-2 space-y-1 text-xs text-gray-700 list-disc pl-5">
-              {pending.followups.map((q) => (
-                <li key={q}>{q}</li>
+              {followups.map((q) => (
+                <li key={q} className="flex items-start justify-between gap-2">
+                  <span className="flex-1">{q}</span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setInput((prev) =>
+                        prev ? `${prev}\n\n${q}\n` : `${q}\n`
+                      )
+                    }
+                    className="text-[10px] shrink-0 rounded-full border px-2 py-0.5 text-gray-600 hover:bg-white"
+                  >
+                    Answer
+                  </button>
+                </li>
               ))}
             </ul>
           </div>
         ) : null}
+        <div className="mt-3 rounded-xl border bg-white p-3">
+          <div className="flex items-center justify-between text-xs font-medium text-gray-900">
+            Preview build
+            <span
+              className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                readyForBuild ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
+              }`}
+            >
+              {readyForBuild ? "Ready" : "Needs details"}
+            </span>
+          </div>
+          <p className="mt-1 text-[11px] text-gray-600">
+            {readyForBuild
+              ? "The assistant thinks the plan is ready. Start the build when you’re set."
+              : "Answer the outstanding questions or force a build if you’re just testing."}
+          </p>
+          <div className="mt-3 flex items-center gap-3">
+            <Button
+              type="button"
+              onClick={() => void startPreviewBuild(false)}
+              disabled={isBuilding}
+              className="h-9 px-3"
+            >
+              {isBuilding ? (
+                <span className="inline-flex items-center gap-2 text-xs">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Starting…
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-2 text-xs">
+                  <Play className="h-3.5 w-3.5" />
+                  Build preview
+                </span>
+              )}
+            </Button>
+            <div className="text-[11px] text-gray-500">
+              {readyForBuild
+                ? "Kick it off whenever you’re ready."
+                : "Best results after the questions above are answered."}
+            </div>
+          </div>
+        </div>
         <div className="mt-2 text-[11px] text-gray-500">
-          Tip: start with “Build preview” once you’re happy with the plan.
+          Tip: toggle auto-build if you want previews to start automatically once the assistant is ready.
         </div>
       </div>
     </div>
   );
 }
-
-

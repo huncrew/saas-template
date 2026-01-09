@@ -1742,40 +1742,7 @@ async def build_autonomous_stream(
     from app.agents.autonomous_controller import run_autonomous_build_with_sse
     from app.agents.integration import generate_code_with_agents, process_chat_with_agents
 
-    # Generate spec if missing - don't block on this
-    if not project.spec_yaml:
-        try:
-            # Generate a minimal spec from project context
-            spec_result = run_async(process_chat_with_agents(
-                project_id=project_id,
-                project_name=project.name,
-                template_id=project.template_id,
-                message="Generate a complete spec for this project and proceed to build.",
-                history=[{"role": "user", "content": f"I want to build: {project.name}"}],
-                user_id=user_id,
-                auto_preview=True,
-                templates_dir=TEMPLATES_DIR,
-                modules_dir=MODULES_DIR,
-            ))
-            if spec_result.get("spec_yaml"):
-                project.spec_yaml = spec_result["spec_yaml"]
-                project.spec_markdown = spec_result.get("spec_markdown")
-                project.spec_updated_at = now_iso()
-                repo.put_project(user_id, project)
-        except Exception as e:
-            print(f"[AUTONOMOUS] Failed to auto-generate spec: {e}")
-
-    # If still no spec, create a minimal one
-    if not project.spec_yaml:
-        project.spec_yaml = f"""goal: Build {project.name}
-template: {project.template_id}
-features:
-  - Core functionality as described
-  - Clean, modern UI
-  - Error handling
-"""
-        project.spec_updated_at = now_iso()
-        repo.put_project(user_id, project)
+    # NOTE: Spec generation moved inside SSE generator to avoid blocking before stream starts
 
     # Get skeleton manifest
     bucket = _artifacts_bucket()
@@ -1878,6 +1845,64 @@ features:
     async def generate_sse():
         """Generate SSE events for the autonomous build."""
         try:
+            # First event immediately - keeps connection alive
+            yield f"data: {json.dumps({'phase': 'initializing', 'message': 'Starting build...', 'attempt': 0, 'max_attempts': 3})}\n\n"
+
+            # Generate spec if missing - do this INSIDE the stream with heartbeats
+            spec_yaml = project.spec_yaml
+            if not spec_yaml:
+                yield f"data: {json.dumps({'phase': 'initializing', 'message': 'Generating project specification...', 'attempt': 0, 'max_attempts': 3})}\n\n"
+
+                try:
+                    # Run spec generation with heartbeat
+                    import asyncio
+                    heartbeat_s = 8.0  # Keep under ALB timeout
+                    spec_task = asyncio.create_task(asyncio.to_thread(
+                        lambda: run_async(process_chat_with_agents(
+                            project_id=project_id,
+                            project_name=project.name,
+                            template_id=project.template_id,
+                            message="Generate a complete spec for this project and proceed to build.",
+                            history=[{"role": "user", "content": f"I want to build: {project.name}"}],
+                            user_id=user_id,
+                            auto_preview=True,
+                            templates_dir=TEMPLATES_DIR,
+                            modules_dir=MODULES_DIR,
+                        ))
+                    ))
+
+                    while not spec_task.done():
+                        try:
+                            await asyncio.wait_for(asyncio.shield(spec_task), timeout=heartbeat_s)
+                        except asyncio.TimeoutError:
+                            yield f"data: {json.dumps({'phase': 'initializing', 'message': 'Generating specification... still working', 'attempt': 0, 'max_attempts': 3})}\n\n"
+                            continue
+
+                    spec_result = await spec_task
+                    if spec_result.get("spec_yaml"):
+                        spec_yaml = spec_result["spec_yaml"]
+                        project.spec_yaml = spec_yaml
+                        project.spec_markdown = spec_result.get("spec_markdown")
+                        project.spec_updated_at = now_iso()
+                        repo.put_project(user_id, project)
+                        yield f"data: {json.dumps({'phase': 'initializing', 'message': 'Specification generated!', 'attempt': 0, 'max_attempts': 3})}\n\n"
+                except Exception as e:
+                    print(f"[AUTONOMOUS] Failed to auto-generate spec: {e}")
+                    yield f"data: {json.dumps({'phase': 'initializing', 'message': f'Spec generation failed, using fallback: {str(e)[:50]}', 'attempt': 0, 'max_attempts': 3})}\n\n"
+
+            # If still no spec, create a minimal one
+            if not spec_yaml:
+                spec_yaml = f"""goal: Build {project.name}
+template: {project.template_id}
+features:
+  - Core functionality as described
+  - Clean, modern UI
+  - Error handling
+"""
+                project.spec_yaml = spec_yaml
+                project.spec_updated_at = now_iso()
+                repo.put_project(user_id, project)
+
             # Helper to trigger actual CodeBuild (simplified for SSE)
             def trigger_codebuild(project_id: str, gen_result: dict, user_id: str) -> dict:
                 nonlocal current_build_id
@@ -1959,7 +1984,7 @@ features:
             final_status = None
             async for sse_event in run_autonomous_build_with_sse(
                 project_id=project_id,
-                spec_yaml=project.spec_yaml,
+                spec_yaml=spec_yaml,  # Use the local variable we just generated/retrieved
                 generate_code_fn=lambda **kw: run_async(generate_code_with_agents(
                     project_id=kw.get("project_id"),
                     project_name=project.name,

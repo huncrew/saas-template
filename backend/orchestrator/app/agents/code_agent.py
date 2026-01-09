@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from typing import Literal, Optional
 
 from .base import Agent, AgentState, AgentResult, AIClient
+from .template_tools import get_template_context, TemplateContext
 
 
 @dataclass
@@ -30,6 +31,7 @@ class CodeGenState(AgentState):
     spec_yaml: str = ""
     project_name: str = ""
     template_id: str = ""
+    template_path: str = ""  # Path to template directory for loading real file contents
     skeleton_manifest: list[str] = field(default_factory=list)  # Files in template
     template_context: str = ""
     additional_instructions: str = ""  # Extra instructions (e.g., from previous build failures)
@@ -52,7 +54,7 @@ class CodeGenResult:
     needs_validation: bool = True
 
 
-CODE_GEN_SYSTEM_PROMPT = """You are an expert full-stack developer generating production code for a SaaS application.
+CODE_GEN_BASE_PROMPT = """You are an expert full-stack developer generating production code for a SaaS application.
 
 ## Template Structure
 The app is built on a production template with:
@@ -61,26 +63,13 @@ The app is built on a production template with:
 - **Database**: DynamoDB (single-table design)
 - **Auth**: Clerk (optional - app must work without it for previews)
 
-## Available UI Components (from @/components/ui/*)
-These are the ONLY UI components available. Import each from its own file:
-- accordion, alert, avatar, badge, button, card, carousel, checkbox
-- dialog, dropdown-menu, form, input, label, popover, progress, radio-group
-- scroll-area, select, separator, sheet, skeleton, slider, sonner, switch
-- table, tabs, textarea, tooltip
-
-Example imports:
-  import { Button } from "@/components/ui/button"
-  import { Card, CardHeader, CardContent, CardTitle } from "@/components/ui/card"
-  import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-  import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-
 ## CRITICAL: Closed-World Import Rule
 If you import something, you MUST either:
-1. Import from an existing template file (listed above), OR
+1. Import from an existing template file (see TEMPLATE CONTRACT below), OR
 2. Generate the file yourself with the correct exports
 
 DO NOT:
-- Import custom components from @/components/ui/* (e.g., NO ArsenalLogo in ui folder)
+- Import custom components from @/components/ui/* (only use components listed in the contract)
 - Import assets that don't exist (e.g., NO @/assets/logo.png)
 - Import types without exporting them (if you use `type Foo`, ensure `export type Foo = ...`)
 - Use bare imports like `from "@/components/ui"` - always specify the file
@@ -104,97 +93,8 @@ Instead, create NEW files for your types and components:
 - For your types: import { YourType } from "@/types/app-types"
 - For UI components: import { Button } from "@/components/ui/button"
 
-## TEMPLATE CONTRACT FILES (READ CAREFULLY - these are the ACTUAL file contents)
-
-### @/lib/api.ts - API Client (DO NOT RECREATE, just import)
-```typescript
-// Exports: apiClient (instance of ApiClient class)
-// ONLY these 4 methods exist - DO NOT call any other methods:
-//   apiClient.getUser(userId: string): Promise<APIResponse<User>>
-//   apiClient.createUser(userData: Partial<User>): Promise<APIResponse<User>>
-//   apiClient.getSubscriptionStatus(userId: string): Promise<APIResponse<SubscriptionStatus>>
-//   apiClient.createCheckoutSession(priceId: string, userId?: string): Promise<APIResponse<{ clientSecret: string }>>
-export const apiClient = new ApiClient();
-```
-
-### IMPORTANT: Custom API Calls
-For features NOT covered by apiClient (chat, custom endpoints, etc.), use fetch() directly:
-```typescript
-// Example: Custom chat endpoint (use fetch, NOT apiClient)
-const response = await fetch('/api/chat', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ message: userMessage }),
-});
-const data = await response.json();
-
-// For preview builds without a real backend, use MOCK DATA instead:
-const mockResponse = { reply: "This is a mock response for preview" };
-```
-
-### @/types/index.ts - Core Types (DO NOT RECREATE, import from here)
-```typescript
-export interface User {
-  id: string;
-  email: string;
-  name: string;
-  createdAt: string;
-  updatedAt: string;
-  subscriptionStatus: 'active' | 'inactive' | 'cancelled';
-  subscriptionId?: string;
-  cognitoId: string;
-}
-
-export interface Subscription {
-  id: string;
-  userId: string;
-  stripeSubscriptionId: string;
-  status: 'active' | 'past_due' | 'cancelled' | 'incomplete';
-  currentPeriodStart: string;
-  currentPeriodEnd: string;
-  planId: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface PricingPlan {
-  id: string;
-  name: string;
-  price: number;
-  interval: 'month' | 'year';
-  features: string[];
-  stripePriceId: string;
-  popular?: boolean;
-}
-
-export interface APIResponse<T = unknown> {
-  success: boolean;
-  data?: T;
-  error?: string;
-  message?: string;
-}
-
-export interface SubscriptionStatus {
-  subscription?: Subscription;
-  subscriptionStatus: 'active' | 'inactive' | 'cancelled';
-  hasActiveSubscription: boolean;
-  stripePriceId?: string | null;
-}
-```
-
-### @/lib/utils.ts - Utility Functions
-```typescript
-import { clsx, type ClassValue } from "clsx"
-import { twMerge } from "tailwind-merge"
-
-export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs))
-}
-```
-
 ### Icons - Use lucide-react (already installed)
 ```typescript
-// Example imports - use these instead of custom icon components or <img> tags
 import { Home, Settings, User, Search, Menu, X, ChevronDown, Plus, Trash, Edit, Check, AlertCircle, Info, Star, Heart, Mail, Phone, MapPin, Calendar, Clock, ArrowLeft, ArrowRight, ExternalLink, Download, Upload, Share, Copy, Loader2, Trophy, Target, TrendingUp, Users, Activity, Zap, Shield, Award } from "lucide-react"
 ```
 
@@ -343,6 +243,23 @@ IMPORTANT:
 - For simple previews, use mock data instead of API calls"""
 
 
+def build_system_prompt(template_context: Optional[TemplateContext] = None) -> str:
+    """
+    Build the full system prompt with dynamic template context.
+
+    If template_context is provided, includes real file contents from the template.
+    Otherwise, falls back to the base prompt only.
+    """
+    if template_context:
+        dynamic_context = template_context.get_full_context_for_prompt()
+        return f"{CODE_GEN_BASE_PROMPT}\n\n{dynamic_context}"
+    return CODE_GEN_BASE_PROMPT
+
+
+# Keep legacy constant for backwards compatibility
+CODE_GEN_SYSTEM_PROMPT = CODE_GEN_BASE_PROMPT
+
+
 FIX_ERRORS_PROMPT = """The generated code had validation errors. Fix the issues and regenerate ONLY the affected files.
 
 ## Errors Found:
@@ -371,20 +288,41 @@ class CodeGeneratorAgent(Agent[CodeGenState, CodeGenResult]):
     name = "code_generator"
     description = "Generates production code from specifications"
 
+    def __init__(self, ai_client: Optional[AIClient] = None, template_path: str = ""):
+        super().__init__(ai_client)
+        self.template_path = template_path
+        self._template_context: Optional[TemplateContext] = None
+
+        # Load template context if path provided
+        if template_path:
+            try:
+                self._template_context = get_template_context(template_path)
+            except Exception:
+                pass  # Fall back to static prompt
+
     def create_initial_state(
         self,
         spec_yaml: str = "",
         project_name: str = "",
         template_id: str = "",
+        template_path: str = "",
         skeleton_manifest: Optional[list[str]] = None,
         template_context: str = "",
         additional_instructions: str = "",
         **kwargs
     ) -> CodeGenState:
+        # Load template context if not already loaded
+        if template_path and not self._template_context:
+            try:
+                self._template_context = get_template_context(template_path)
+            except Exception:
+                pass
+
         return CodeGenState(
             spec_yaml=spec_yaml,
             project_name=project_name,
             template_id=template_id,
+            template_path=template_path,
             skeleton_manifest=skeleton_manifest or [],
             template_context=template_context,
             additional_instructions=additional_instructions,
@@ -598,10 +536,13 @@ Follow the rules in your system prompt carefully."""
             prompt = self._build_generation_prompt(state)
 
         try:
+            # Build system prompt with dynamic template context
+            system_prompt = build_system_prompt(self._template_context)
+
             response = self.ai.generate(
                 prompt=prompt,
                 user_id=user_id,
-                system=CODE_GEN_SYSTEM_PROMPT,
+                system=system_prompt,
                 temperature=0.2,
                 max_tokens=8000,
             )

@@ -162,16 +162,18 @@ class AgentOrchestrator:
         template_context: str = "",
         modules_context: str = "",
         skeleton_manifest: Optional[list[str]] = None,
+        template_path: str = "",  # Path to template directory for loading real file contents
     ):
         self.ai = ai_client or AIClient()
         self.template_context = template_context
         self.modules_context = modules_context
         self.skeleton_manifest = skeleton_manifest or []
+        self.template_path = template_path
 
         # Initialize agents
         self.chat_agent = ChatAgent(self.ai)
         self.spec_agent = SpecGeneratorAgent(self.ai)
-        self.code_agent = CodeGeneratorAgent(self.ai)
+        self.code_agent = CodeGeneratorAgent(self.ai, template_path=template_path)
         self.validator_agent = ValidatorAgent(self.ai)
         self.security_agent = SecurityAgent()
 

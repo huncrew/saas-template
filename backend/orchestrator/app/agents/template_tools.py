@@ -8,10 +8,194 @@ full agentic tool use.
 Future: These will become actual tools the AI can call during generation.
 """
 
+from __future__ import annotations
+
+import os
+import re
+from pathlib import Path
 from typing import Optional
 
 # Template file contents cache (populated on startup or first use)
 _TEMPLATE_FILES: dict[str, str] = {}
+_TEMPLATE_CONTEXT_CACHE: dict[str, "TemplateContext"] = {}
+
+
+class TemplateContext:
+    """
+    Dynamic template context loaded from actual files.
+    This ensures the AI always has accurate information about what's available.
+    """
+
+    def __init__(self, template_path: str):
+        self.template_path = Path(template_path)
+        self.frontend_src = self.template_path / "frontend" / "src"
+
+        # Loaded data
+        self.ui_components: dict[str, list[str]] = {}
+        self.api_file_content: str = ""
+        self.types_file_content: str = ""
+        self.utils_file_content: str = ""
+
+        self._load()
+
+    def _load(self) -> None:
+        """Load template context from actual files."""
+        self._load_ui_components()
+        self._load_core_files()
+
+    def _load_ui_components(self) -> None:
+        """Scan UI components directory and extract exports."""
+        ui_dir = self.frontend_src / "components" / "ui"
+        if not ui_dir.exists():
+            return
+
+        for file_path in ui_dir.glob("*.tsx"):
+            component_name = file_path.stem
+            content = file_path.read_text(encoding="utf-8", errors="ignore")
+            exports = self._extract_exports(content)
+            if exports:
+                self.ui_components[component_name] = exports
+
+    def _extract_exports(self, content: str) -> list[str]:
+        """Extract named exports from TypeScript/TSX file."""
+        exports = []
+
+        # Match: export const/function/class Name
+        pattern1 = r'export\s+(?:const|function|class)\s+(\w+)'
+        exports.extend(re.findall(pattern1, content))
+
+        # Match: export { Name, Name2 }
+        pattern2 = r'export\s*\{\s*([^}]+)\s*\}'
+        for match in re.finditer(pattern2, content):
+            names = match.group(1).split(",")
+            for name in names:
+                # Handle "as" renames: "Foo as Bar" -> Bar
+                name = name.strip()
+                if " as " in name:
+                    name = name.split(" as ")[1].strip()
+                if name and name[0].isupper():  # Only component names
+                    exports.append(name)
+
+        # Match: export type Name
+        pattern3 = r'export\s+type\s+(\w+)'
+        exports.extend(re.findall(pattern3, content))
+
+        # Match: export interface Name
+        pattern4 = r'export\s+interface\s+(\w+)'
+        exports.extend(re.findall(pattern4, content))
+
+        return list(set(exports))  # Deduplicate
+
+    def _load_core_files(self) -> None:
+        """Load core template files content."""
+        # API client
+        api_path = self.frontend_src / "lib" / "api.ts"
+        if api_path.exists():
+            self.api_file_content = api_path.read_text(encoding="utf-8", errors="ignore")
+
+        # Types
+        types_path = self.frontend_src / "types" / "index.ts"
+        if types_path.exists():
+            self.types_file_content = types_path.read_text(encoding="utf-8", errors="ignore")
+
+        # Utils
+        utils_path = self.frontend_src / "lib" / "utils.ts"
+        if utils_path.exists():
+            self.utils_file_content = utils_path.read_text(encoding="utf-8", errors="ignore")
+
+    def get_ui_components_for_prompt(self) -> str:
+        """Get UI components info formatted for prompts."""
+        if not self.ui_components:
+            return "No UI components found in template."
+
+        lines = ["## Available UI Components (@/components/ui/*)", ""]
+        for name in sorted(self.ui_components.keys()):
+            exports = self.ui_components[name]
+            export_list = ", ".join(exports[:5])
+            if len(exports) > 5:
+                export_list += ", ..."
+            lines.append(f"- **{name}**: {export_list}")
+            lines.append(f'  `import {{ {exports[0]} }} from "@/components/ui/{name}"`')
+        return "\n".join(lines)
+
+    def get_api_contract_for_prompt(self) -> str:
+        """Get API client info formatted for prompts."""
+        if not self.api_file_content:
+            return "API client file not found."
+
+        # Extract method signatures
+        methods = []
+        pattern = r'async\s+(\w+)\s*\(([^)]*)\)\s*:\s*Promise<([^>]+)>'
+        for match in re.finditer(pattern, self.api_file_content):
+            method_name = match.group(1)
+            params = match.group(2).strip()
+            return_type = match.group(3)
+            methods.append(f"  - apiClient.{method_name}({params}): Promise<{return_type}>")
+
+        return f"""## API Client (@/lib/api)
+
+The `apiClient` object is exported from `@/lib/api`. These are the ONLY methods available:
+
+{chr(10).join(methods)}
+
+For any other API calls, use `fetch()` directly.
+
+### Actual File Content:
+```typescript
+{self.api_file_content}
+```"""
+
+    def get_types_for_prompt(self) -> str:
+        """Get types info formatted for prompts."""
+        if not self.types_file_content:
+            return "Types file not found."
+
+        return f"""## Core Types (@/types/index.ts)
+
+DO NOT recreate these types. Import them: `import {{ User, Subscription }} from "@/types"`
+
+### Actual File Content:
+```typescript
+{self.types_file_content}
+```"""
+
+    def get_utils_for_prompt(self) -> str:
+        """Get utils info formatted for prompts."""
+        if not self.utils_file_content:
+            return "Utils file not found."
+
+        return f"""## Utilities (@/lib/utils)
+
+```typescript
+{self.utils_file_content}
+```"""
+
+    def get_full_context_for_prompt(self) -> str:
+        """Get complete template context for inclusion in system prompt."""
+        sections = [
+            "# TEMPLATE CONTRACT (Read from actual template files - this is ground truth)",
+            "",
+            self.get_ui_components_for_prompt(),
+            "",
+            self.get_api_contract_for_prompt(),
+            "",
+            self.get_types_for_prompt(),
+            "",
+            self.get_utils_for_prompt(),
+        ]
+        return "\n".join(sections)
+
+
+def get_template_context(template_path: str) -> TemplateContext:
+    """Get or create cached template context."""
+    if template_path not in _TEMPLATE_CONTEXT_CACHE:
+        _TEMPLATE_CONTEXT_CACHE[template_path] = TemplateContext(template_path)
+    return _TEMPLATE_CONTEXT_CACHE[template_path]
+
+
+def clear_template_cache() -> None:
+    """Clear the template context cache (useful for testing)."""
+    _TEMPLATE_CONTEXT_CACHE.clear()
 
 
 # UI Components available in the template

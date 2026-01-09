@@ -180,12 +180,14 @@ async def process_chat_with_agents(
     # Build contexts
     template_context = _get_template_context(template_id, templates_dir)
     modules_context = _get_modules_context(modules_dir)
+    template_path = str(templates_dir / template_id) if templates_dir else ""
 
     # Create orchestrator
     orchestrator = AgentOrchestrator(
         ai_client=AIClient(),
         template_context=template_context,
         modules_context=modules_context,
+        template_path=template_path,
     )
 
     # Process chat
@@ -266,6 +268,7 @@ async def generate_code_with_agents(
     # Build contexts
     template_context = _get_template_context(template_id, templates_dir)
     modules_context = _get_modules_context(modules_dir)
+    template_path = str(templates_dir / template_id) if templates_dir else ""
 
     # Create orchestrator
     orchestrator = AgentOrchestrator(
@@ -273,6 +276,7 @@ async def generate_code_with_agents(
         template_context=template_context,
         modules_context=modules_context,
         skeleton_manifest=skeleton_manifest,
+        template_path=template_path,
     )
 
     # Generate code with validation

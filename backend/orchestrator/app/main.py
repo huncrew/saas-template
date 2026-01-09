@@ -313,6 +313,20 @@ def _module_patch_keys_for_build(project: Project, project_id: str, build_id: st
             _s3_put_text(bucket, key, content, "text/plain; charset=utf-8")
             keys.append(key)
     return keys
+
+
+def _get_skeleton_manifest(bucket: str) -> list[str]:
+    """
+    Get the file manifest from the base-skeleton template in S3.
+    Returns list of file paths inside the skeleton zip.
+    """
+    template_key = _factory_template_key() or "templates/base-skeleton.zip"
+    try:
+        return _template_manifest(bucket, template_key)
+    except Exception:
+        return []
+
+
 def _template_manifest(bucket: str, key: str) -> list[str]:
     """
     Return a list of file paths inside the template zip stored in S3.
@@ -1545,11 +1559,7 @@ def generate_code(
         except Exception:
             pass
 
-    # Persist assistant message so future calls have context even if the client doesn't send history.
-    try:
-        repo.append_chat_message(user_id, project_id, "assistant", _redact(assistant_content or "Ok."))
-    except Exception as exc:
-        print(f"[CHAT] failed to persist assistant message: {exc}")
+    # Note: No assistant message to persist in /generate - code generation happens silently
 
     try:
         result = run_async(generate_code_with_agents(
@@ -2015,7 +2025,7 @@ features:
 
             # Run the autonomous build loop
             # Skeleton path for compile validation (npm ci && npm run build)
-            skeleton_path = str(TEMPLATES_DIR / project.template_id)
+            skeleton_path = str(_resolve_skeleton_dir(project.template_id))
             final_status = None
             async for sse_event in run_autonomous_build_with_sse(
                 project_id=project_id,
@@ -2117,3 +2127,23 @@ TEMPLATES_DIR = FACTORY_DIR / "templates"
 MODULES_DIR = FACTORY_DIR / "modules"
 _TEMPLATE_CACHE: dict[str, dict] = {}
 _MODULE_CACHE: dict[str, dict] = {}
+
+
+def _resolve_skeleton_dir(template_id: str) -> Path:
+    """
+    Resolve a template_id to an on-disk skeleton directory that contains real code.
+
+    Some template IDs (e.g. `saas-crud`) are metadata-only (template.yaml) and do NOT
+    include `frontend/src`. For compile validation and agentic workspace bootstrapping
+    we must point at a directory that actually contains the skeleton code.
+    """
+    candidate = TEMPLATES_DIR / template_id
+    if (candidate / "frontend" / "src").exists():
+        return candidate
+
+    fallback = TEMPLATES_DIR / "base-skeleton"
+    if (fallback / "frontend" / "src").exists():
+        return fallback
+
+    # Last resort: return the candidate even if it looks incomplete; downstream will error.
+    return candidate

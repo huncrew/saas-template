@@ -75,20 +75,19 @@ class Workspace:
         if not self.template_path:
             return
 
-        # Copy frontend/src directory (the main code we care about)
-        frontend_src = self.template_path / "frontend" / "src"
-        if frontend_src.exists():
-            dest = self.root / "frontend" / "src"
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copytree(frontend_src, dest, dirs_exist_ok=True)
-
-        # Copy key config files
-        for config_file in ["package.json", "tsconfig.json", "next.config.js", "next.config.ts", "tailwind.config.ts"]:
-            src = self.template_path / "frontend" / config_file
-            if src.exists():
-                dest = self.root / "frontend" / config_file
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(src, dest)
+        # Copy entire frontend directory (excluding node_modules, .next)
+        frontend_dir = self.template_path / "frontend"
+        if frontend_dir.exists():
+            dest = self.root / "frontend"
+            dest.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(
+                frontend_dir,
+                dest,
+                dirs_exist_ok=True,
+                ignore=shutil.ignore_patterns(
+                    "node_modules", ".next", ".git", "__pycache__", "*.pyc", ".DS_Store"
+                )
+            )
 
     def cleanup(self) -> None:
         """Clean up temporary workspace."""

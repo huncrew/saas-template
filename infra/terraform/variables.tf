@@ -76,8 +76,8 @@ variable "stripe_webhook_secret" {
 variable "bedrock_model_id" {
   description = "Default Bedrock model identifier used for AI generation."
   type        = string
-  # Claude Opus 4.5 - most capable model for complex code generation
-  default     = "anthropic.claude-opus-4-5-20251101-v1:0"
+  # Claude Opus 4.5 inference profile - required for cross-region routing
+  default     = "us.anthropic.claude-opus-4-5-20251101-v1:0"
 }
 
 variable "enable_async_queue" {

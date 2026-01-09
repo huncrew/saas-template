@@ -1,0 +1,3 @@
+-c ../../common/constraints.txt
+-r ../../common/requirements.txt
+stripe==8.11.0

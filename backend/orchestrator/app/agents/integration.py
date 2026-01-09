@@ -24,8 +24,8 @@ from .diagram_generator import generate_architecture_diagram, generate_entity_di
 
 
 def _use_agentic_coder() -> bool:
-    """Check if agentic coder is enabled."""
-    return os.getenv("USE_AGENTIC_CODER", "0").lower() in ("1", "true", "yes")
+    """Check if agentic coder is enabled. Defaults to enabled (set USE_AGENTIC_CODER=0 to disable)."""
+    return os.getenv("USE_AGENTIC_CODER", "1").lower() in ("1", "true", "yes")
 
 
 # Cache for orchestrator state (in production, use Redis or DynamoDB)
@@ -450,7 +450,10 @@ async def generate_code_agentic(
     from .agentic_coder import run_agentic_generation
     from .code_agent import FileChange
 
-    template_path = str(templates_dir / template_id) if templates_dir else ""
+    # CRITICAL: Always use base-skeleton - it has the actual frontend code with UI components
+    # The template_id specific configs are in template.yaml but the code is in base-skeleton
+    template_path = str(templates_dir / "base-skeleton") if templates_dir else ""
+    logger.info(f"[generate_code_agentic] Using template_path={template_path}")
 
     # Get model ID from environment
     model_id = os.getenv("BEDROCK_MODEL_ID") or os.getenv("AGENTIC_MODEL_ID")
@@ -464,14 +467,19 @@ async def generate_code_agentic(
         run_compile=run_compile,
     )
 
+    # Convert changed files map to the manifest format expected downstream.
+    # NOTE: We only ship files the agent actually wrote/changed (not the whole template).
+    files_manifest = [
+        {"path": path, "content": content or "", "action": "create"}
+        for path, content in (result.files or {}).items()
+        if path
+    ]
+
     if result.success:
         return {
             "success": True,
-            "files": [
-                {"path": path, "content": "", "action": "create"}
-                for path in result.files_changed
-            ],
-            "files_count": len(result.files_changed),
+            "files": files_manifest,
+            "files_count": len(files_manifest),
             "validated": "succeeded" in result.compile_output.lower() if result.compile_output else False,
             "summary": result.summary,
             "iterations": result.iterations,
@@ -482,7 +490,7 @@ async def generate_code_agentic(
         return {
             "success": False,
             "error": result.error or "Agentic generation failed",
-            "files": [],
+            "files": files_manifest,
             "validated": False,
             "iterations": result.iterations,
             "compile_output": result.compile_output,
@@ -504,9 +512,12 @@ async def smart_generate_code(
     """
     Smart code generation that chooses between old and agentic coder.
 
-    Use USE_AGENTIC_CODER=1 environment variable to enable the new agentic coder.
+    Agentic coder (tool-calling) is now the default. Set USE_AGENTIC_CODER=0 to use old prompt-based.
     """
-    if _use_agentic_coder():
+    use_agentic = _use_agentic_coder()
+    logger.info(f"[smart_generate_code] Using {'AGENTIC (tool-calling)' if use_agentic else 'PROMPT-BASED'} coder")
+
+    if use_agentic:
         return await generate_code_agentic(
             project_id=project_id,
             project_name=project_name,

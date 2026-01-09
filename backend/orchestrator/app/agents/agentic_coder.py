@@ -44,6 +44,9 @@ class GenerationResult:
     """Result from code generation."""
     success: bool
     files_changed: list[str] = field(default_factory=list)
+    # Map of changed file path -> full content (only for files_changed).
+    # This is used downstream to create the CodeBuild files manifest.
+    files: dict[str, str] = field(default_factory=dict)
     summary: str = ""
     error: Optional[str] = None
     iterations: int = 0
@@ -109,7 +112,7 @@ REPAIR_PROMPT_TEMPLATE = """The build failed with these errors:
 ## AVAILABLE UI COMPONENTS (use ONLY these!)
 accordion, alert, avatar, badge, button, card, carousel, checkbox, dialog,
 dropdown-menu, form, input, label, popover, progress, radio-group, scroll-area,
-select, separator, sheet, skeleton, slider, sonnet, switch, table, tabs, textarea, tooltip
+select, separator, sheet, skeleton, slider, sonner, switch, table, tabs, textarea, tooltip
 
 ## Common Fixes
 - "Module not found" → The UI component doesn't exist. Use ONLY the components listed above.
@@ -468,6 +471,19 @@ async def run_agentic_generation(
     Returns:
         GenerationResult with final status
     """
+    def _populate_changed_files(out: GenerationResult) -> None:
+        """Attach full contents for changed files onto the result."""
+        try:
+            for p in out.files_changed:
+                if p in out.files:
+                    continue
+                content = workspace.read_file(p)
+                if content is not None:
+                    out.files[p] = content
+        except Exception:
+            # Best-effort only; never fail generation because we couldn't read back a file.
+            pass
+
     config = AgenticCoderConfig()
     if model_id:
         config.model_id = model_id
@@ -485,9 +501,11 @@ async def run_agentic_generation(
         )
 
         if not result.success:
+            _populate_changed_files(result)
             return result
 
         if not run_compile:
+            _populate_changed_files(result)
             return result
 
         # Run compile validation
@@ -512,6 +530,7 @@ async def run_agentic_generation(
 
             if val_result.success and val_result.data and val_result.data.is_valid:
                 result.compile_output = "Build succeeded"
+                _populate_changed_files(result)
                 return result
 
             # Build failed - attempt repair
@@ -526,6 +545,7 @@ async def run_agentic_generation(
 
                 if not repair_result.success:
                     result.error = repair_result.error
+                    _populate_changed_files(result)
                     return result
 
                 result.files_changed.extend(repair_result.files_changed)
@@ -548,6 +568,7 @@ async def run_agentic_generation(
                 if val_result.success and val_result.data and val_result.data.is_valid:
                     result.compile_output = "Build succeeded after repair"
                     result.summary = f"Fixed in {attempt + 1} repair attempt(s)"
+                    _populate_changed_files(result)
                     return result
 
                 compile_errors = val_state.build_output or "Build still failing"
@@ -556,6 +577,7 @@ async def run_agentic_generation(
             # Max repair attempts reached
             result.success = False
             result.error = f"Build still failing after {config.max_repair_attempts} repair attempts"
+            _populate_changed_files(result)
             return result
 
         finally:

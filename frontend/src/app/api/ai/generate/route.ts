@@ -142,7 +142,7 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify({
         userId,
         prompt: normalizedPrompt,
-        model: normalizedModel || 'anthropic.claude-3-haiku-20240307-v1:0',
+        model: normalizedModel || 'anthropic.claude-3-opus-20240229-v1:0',
         temperature: temp,
         maxTokens: maxT,
       }),

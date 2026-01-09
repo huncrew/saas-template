@@ -74,7 +74,9 @@ variable "stripe_webhook_secret" {
 variable "bedrock_model_id" {
   description = "Default Bedrock model identifier used for AI generation."
   type        = string
-  default     = "anthropic.claude-3-haiku-20240307-v1:0"
+  # NOTE: Bedrock model IDs are provider-specific strings. If you want a different
+  # Claude Opus variant/version, set this to the exact Bedrock model id you have enabled.
+  default     = "anthropic.claude-3-opus-20240229-v1:0"
 }
 
 variable "enable_async_queue" {

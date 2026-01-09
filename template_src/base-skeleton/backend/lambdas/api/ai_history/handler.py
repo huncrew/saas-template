@@ -49,7 +49,7 @@ def handler(event: Dict[str, Any], _context: Any) -> Dict[str, Any]:
                     "id": "session-1",
                     "prompt": "Analyze this data...",
                     "response": "Based on the analysis...",
-                    "model": "anthropic.claude-3-haiku-20240307-v1:0",
+                    "model": "anthropic.claude-3-opus-20240229-v1:0",
                     "tokens": 150,
                     "createdAt": now_iso,
                 }

@@ -13,11 +13,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { 
-  Diff, ExternalLink, FileText, Play, Rocket, RefreshCw, ShieldCheck, 
+import {
+  Diff, ExternalLink, FileText, Play, Rocket, RefreshCw, ShieldCheck,
   GitBranch, CheckCircle, AlertTriangle, XCircle, Clock, Download,
-  Code2, Database, Globe, Server, Eye, RotateCcw
+  Code2, Database, Globe, Server, Eye, RotateCcw, Layers
 } from "lucide-react";
+import { MermaidDiagram } from "@/components/factory/mermaid-diagram";
 
 function BuildStatusPill({ build }: { build?: FactoryBuild }) {
   if (!build) return (
@@ -86,6 +87,11 @@ export default function ProjectWorkspacePage() {
     improvements: string[];
   } | null>(null);
 
+  // Architecture diagram state
+  const [architectureDiagram, setArchitectureDiagram] = useState<string | null>(null);
+  const [entityDiagram, setEntityDiagram] = useState<string | null>(null);
+  const [isLoadingArchitecture, setIsLoadingArchitecture] = useState(false);
+
   const previewUrl = activeBuild?.artifacts?.preview_url;
   const previewReady = !!previewUrl && activeBuild?.type === "preview" && activeBuild?.status === "succeeded";
   const previewFailed = activeBuild?.type === "preview" && activeBuild?.status === "failed";
@@ -149,6 +155,29 @@ export default function ProjectWorkspacePage() {
       window.clearInterval(interval);
     };
   }, [activeBuild?.build_id, activeBuild?.status]);
+
+  // Fetch architecture diagrams when project changes or has spec
+  useEffect(() => {
+    async function fetchArchitecture() {
+      if (!project?.project_id) return;
+
+      setIsLoadingArchitecture(true);
+      try {
+        const response = await fetch(`/api/factory/projects/${project.project_id}/architecture`);
+        if (response.ok) {
+          const data = await response.json();
+          setArchitectureDiagram(data.architecture_diagram || null);
+          setEntityDiagram(data.entity_diagram || null);
+        }
+      } catch (err) {
+        console.error("Failed to fetch architecture:", err);
+      } finally {
+        setIsLoadingArchitecture(false);
+      }
+    }
+
+    fetchArchitecture();
+  }, [project?.project_id, project?.spec_updated_at]);
 
   async function triggerPreview() {
     // Use autonomous build flow (includes retry loop with AI fixes)
@@ -691,136 +720,92 @@ export default function ProjectWorkspacePage() {
                             System Architecture
                           </CardTitle>
                           <CardDescription className="text-sm text-gray-600">
-                            Overview of your application infrastructure and components
+                            Live architecture diagrams generated from your spec
                           </CardDescription>
                         </CardHeader>
                         <CardContent className="h-[calc(100%-6rem)] overflow-auto">
-                          <div className="space-y-6">
-                            {/* Architecture Overview */}
-                            <div>
-                              <h4 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
-                                <Database className="h-4 w-4" />
-                                Infrastructure Stack
-                              </h4>
-                              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                <div className="p-4 bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg border border-blue-200">
-                                  <div className="flex items-center gap-2 mb-2">
-                                    <Server className="h-5 w-5 text-blue-600" />
-                                    <span className="font-semibold text-blue-900">Frontend</span>
-                                  </div>
-                                  <div className="text-sm text-blue-700">
-                                    Next.js 15, React 19, TypeScript
-                                  </div>
-                                  <div className="text-xs text-blue-600 mt-1">Deployed on CloudFront + S3</div>
-                                </div>
-                                <div className="p-4 bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg border border-purple-200">
-                                  <div className="flex items-center gap-2 mb-2">
-                                    <Database className="h-5 w-5 text-purple-600" />
-                                    <span className="font-semibold text-purple-900">Backend</span>
-                                  </div>
-                                  <div className="text-sm text-purple-700">
-                                    Node.js API, ECS Fargate
-                                  </div>
-                                  <div className="text-xs text-purple-600 mt-1">Auto-scaling, Load Balanced</div>
-                                </div>
-                                <div className="p-4 bg-gradient-to-br from-green-50 to-green-100 rounded-lg border border-green-200">
-                                  <div className="flex items-center gap-2 mb-2">
-                                    <Globe className="h-5 w-5 text-green-600" />
-                                    <span className="font-semibold text-green-900">Database</span>
-                                  </div>
-                                  <div className="text-sm text-green-700">
-                                    DynamoDB, Redis Cache
-                                  </div>
-                                  <div className="text-xs text-green-600 mt-1">Serverless, Pay-per-use</div>
-                                </div>
+                          {isLoadingArchitecture ? (
+                            <div className="h-full flex items-center justify-center">
+                              <div className="flex items-center gap-3 text-gray-600">
+                                <RefreshCw className="h-5 w-5 animate-spin" />
+                                <span>Loading architecture diagrams...</span>
                               </div>
                             </div>
+                          ) : architectureDiagram || entityDiagram ? (
+                            <div className="space-y-6">
+                              {/* Architecture Flowchart */}
+                              {architectureDiagram && (
+                                <div>
+                                  <h4 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                                    <Layers className="h-4 w-4" />
+                                    Application Architecture
+                                  </h4>
+                                  <div className="p-4 bg-gradient-to-br from-gray-50 to-white border border-gray-200 rounded-lg">
+                                    <MermaidDiagram chart={architectureDiagram} className="min-h-[200px]" />
+                                  </div>
+                                </div>
+                              )}
 
-                            {/* Architecture Diagram */}
-                            <div>
-                              <h4 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
-                                <FileText className="h-4 w-4" />
-                                System Flow
-                              </h4>
-                              <div className="p-6 bg-gradient-to-br from-gray-50 to-white border border-gray-200 rounded-lg">
-                                <div className="flex items-center justify-between">
-                                  <div className="text-center">
-                                    <div className="w-16 h-16 bg-blue-100 rounded-lg flex items-center justify-center mb-2">
-                                      <Globe className="h-8 w-8 text-blue-600" />
-                                    </div>
-                                    <div className="text-xs font-medium">User</div>
-                                  </div>
-                                  <div className="flex-1 h-px bg-gray-300 mx-4" />
-                                  <div className="text-center">
-                                    <div className="w-16 h-16 bg-green-100 rounded-lg flex items-center justify-center mb-2">
-                                      <Server className="h-8 w-8 text-green-600" />
-                                    </div>
-                                    <div className="text-xs font-medium">Frontend</div>
-                                  </div>
-                                  <div className="flex-1 h-px bg-gray-300 mx-4" />
-                                  <div className="text-center">
-                                    <div className="w-16 h-16 bg-purple-100 rounded-lg flex items-center justify-center mb-2">
-                                      <Database className="h-8 w-8 text-purple-600" />
-                                    </div>
-                                    <div className="text-xs font-medium">API</div>
-                                  </div>
-                                  <div className="flex-1 h-px bg-gray-300 mx-4" />
-                                  <div className="text-center">
-                                    <div className="w-16 h-16 bg-orange-100 rounded-lg flex items-center justify-center mb-2">
-                                      <Database className="h-8 w-8 text-orange-600" />
-                                    </div>
-                                    <div className="text-xs font-medium">Database</div>
+                              {/* Entity Relationship Diagram */}
+                              {entityDiagram && (
+                                <div>
+                                  <h4 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                                    <Database className="h-4 w-4" />
+                                    Data Model
+                                  </h4>
+                                  <div className="p-4 bg-gradient-to-br from-gray-50 to-white border border-gray-200 rounded-lg">
+                                    <MermaidDiagram chart={entityDiagram} className="min-h-[200px]" />
                                   </div>
                                 </div>
-                              </div>
-                            </div>
+                              )}
 
-                            {/* Resources */}
-                            <div>
-                              <h4 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
-                                <CheckCircle className="h-4 w-4" />
-                                Deployed Resources
-                              </h4>
-                              <div className="space-y-2">
-                                <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                                  <div className="flex items-center gap-3">
-                                    <div className="w-2 h-2 rounded-full bg-green-500" />
-                                    <span className="text-sm font-mono">CloudFront Distribution</span>
+                              {/* Infrastructure Stack - Static */}
+                              <div>
+                                <h4 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                                  <Server className="h-4 w-4" />
+                                  Infrastructure Stack
+                                </h4>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                  <div className="p-4 bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg border border-blue-200">
+                                    <div className="flex items-center gap-2 mb-2">
+                                      <Server className="h-5 w-5 text-blue-600" />
+                                      <span className="font-semibold text-blue-900">Frontend</span>
+                                    </div>
+                                    <div className="text-sm text-blue-700">Next.js 15, React 19</div>
+                                    <div className="text-xs text-blue-600 mt-1">CloudFront + S3</div>
                                   </div>
-                                  <Badge variant="secondary" className="bg-green-100 text-green-700 text-xs">
-                                    Active
-                                  </Badge>
-                                </div>
-                                <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                                  <div className="flex items-center gap-3">
-                                    <div className="w-2 h-2 rounded-full bg-green-500" />
-                                    <span className="text-sm font-mono">S3 Static Hosting</span>
+                                  <div className="p-4 bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg border border-purple-200">
+                                    <div className="flex items-center gap-2 mb-2">
+                                      <Database className="h-5 w-5 text-purple-600" />
+                                      <span className="font-semibold text-purple-900">Backend</span>
+                                    </div>
+                                    <div className="text-sm text-purple-700">Python API, ECS</div>
+                                    <div className="text-xs text-purple-600 mt-1">Auto-scaling</div>
                                   </div>
-                                  <Badge variant="secondary" className="bg-green-100 text-green-700 text-xs">
-                                    Active
-                                  </Badge>
-                                </div>
-                                <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                                  <div className="flex items-center gap-3">
-                                    <div className="w-2 h-2 rounded-full bg-green-500" />
-                                    <span className="text-sm font-mono">ECS Fargate Service</span>
+                                  <div className="p-4 bg-gradient-to-br from-green-50 to-green-100 rounded-lg border border-green-200">
+                                    <div className="flex items-center gap-2 mb-2">
+                                      <Globe className="h-5 w-5 text-green-600" />
+                                      <span className="font-semibold text-green-900">Database</span>
+                                    </div>
+                                    <div className="text-sm text-green-700">DynamoDB</div>
+                                    <div className="text-xs text-green-600 mt-1">Serverless</div>
                                   </div>
-                                  <Badge variant="secondary" className="bg-green-100 text-green-700 text-xs">
-                                    Running
-                                  </Badge>
-                                </div>
-                                <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                                  <div className="flex items-center gap-3">
-                                    <div className="w-2 h-2 rounded-full bg-green-500" />
-                                    <span className="text-sm font-mono">DynamoDB Tables (3)</span>
-                                  </div>
-                                  <Badge variant="secondary" className="bg-green-100 text-green-700 text-xs">
-                                    Ready
-                                  </Badge>
                                 </div>
                               </div>
                             </div>
-                          </div>
+                          ) : (
+                            <div className="h-full flex items-center justify-center">
+                              <div className="text-center px-6 max-w-md">
+                                <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                                  <Layers className="w-8 h-8 text-gray-400" />
+                                </div>
+                                <div className="text-lg font-semibold text-gray-900 mb-2">No Architecture Yet</div>
+                                <div className="text-sm text-gray-600">
+                                  Chat with the AI to describe your application. Architecture diagrams will be generated from your specification.
+                                </div>
+                              </div>
+                            </div>
+                          )}
                         </CardContent>
                       </Card>
                     </TabsContent>

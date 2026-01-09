@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 import boto3
+from botocore.config import Config
 
 from .workspace import Workspace, WORKSPACE_TOOLS, execute_workspace_tool
 
@@ -118,8 +119,17 @@ class AgenticCoder:
 
     def __init__(self, config: Optional[AgenticCoderConfig] = None):
         self.config = config or AgenticCoderConfig()
-        # boto3 uses AWS_REGION env var automatically
-        self.bedrock = boto3.client("bedrock-runtime")
+        # boto3 uses AWS_REGION env var automatically, but Opus-class models can exceed
+        # default botocore read timeouts for large prompts. Make timeouts configurable.
+        read_timeout = int(os.getenv("BEDROCK_READ_TIMEOUT_SECONDS", "300"))
+        connect_timeout = int(os.getenv("BEDROCK_CONNECT_TIMEOUT_SECONDS", "10"))
+        retries_max = int(os.getenv("BEDROCK_MAX_ATTEMPTS", "3"))
+        cfg = Config(
+            read_timeout=read_timeout,
+            connect_timeout=connect_timeout,
+            retries={"max_attempts": retries_max, "mode": "standard"},
+        )
+        self.bedrock = boto3.client("bedrock-runtime", config=cfg)
 
         if not self.config.model_id:
             raise RuntimeError("BEDROCK_MODEL_ID env var is required")

@@ -14,6 +14,7 @@ from typing import Any, Generic, Optional, TypeVar
 import os
 
 import boto3
+from botocore.config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -85,8 +86,17 @@ class AIClient:
     def bedrock(self):
         """Lazy-init Bedrock client. Uses AWS_REGION env var."""
         if self._bedrock is None:
-            # boto3 automatically uses AWS_REGION env var
-            self._bedrock = boto3.client("bedrock-runtime")
+            # Opus 4.5 can take longer than botocore defaults for big prompts.
+            # Make timeouts configurable to avoid "Read timeout on endpoint URL" during codegen.
+            read_timeout = int(os.getenv("BEDROCK_READ_TIMEOUT_SECONDS", "300"))
+            connect_timeout = int(os.getenv("BEDROCK_CONNECT_TIMEOUT_SECONDS", "10"))
+            retries_max = int(os.getenv("BEDROCK_MAX_ATTEMPTS", "3"))
+            cfg = Config(
+                read_timeout=read_timeout,
+                connect_timeout=connect_timeout,
+                retries={"max_attempts": retries_max, "mode": "standard"},
+            )
+            self._bedrock = boto3.client("bedrock-runtime", config=cfg)
         return self._bedrock
 
     def generate(

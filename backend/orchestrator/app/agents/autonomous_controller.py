@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import traceback
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -174,13 +175,31 @@ class AutonomousBuildController:
                         improved_kwargs["additional_instructions"] = self._get_improvement_instructions()
 
                 # Generate code
-                gen_result = await asyncio.to_thread(
+                #
+                # IMPORTANT: Keep SSE alive while generation runs.
+                # Long model calls (especially Opus) can take 30-120s, which can exceed
+                # ALB/proxy idle timeouts if we don't emit progress.
+                heartbeat_s = float(os.getenv("SSE_HEARTBEAT_SECONDS", "10"))
+                gen_task = asyncio.create_task(asyncio.to_thread(
                     generate_code_fn,
                     project_id=project_id,
                     spec_yaml=spec_yaml,
                     user_id=user_id,
                     **improved_kwargs
-                )
+                ))
+                while not gen_task.done():
+                    try:
+                        await asyncio.wait_for(asyncio.shield(gen_task), timeout=heartbeat_s)
+                    except asyncio.TimeoutError:
+                        yield BuildProgress(
+                            phase=BuildPhase.GENERATING,
+                            message=f"Generating code (attempt {attempt}/{self.max_attempts})... still working",
+                            attempt=attempt,
+                            max_attempts=self.max_attempts,
+                            improvements=all_improvements,
+                        )
+                        continue
+                gen_result = await gen_task
                 last_gen_result = gen_result
 
                 if not gen_result.get("success"):

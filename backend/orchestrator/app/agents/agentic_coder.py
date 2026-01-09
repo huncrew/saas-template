@@ -508,7 +508,8 @@ async def run_agentic_generation(
             _populate_changed_files(result)
             return result
 
-        # Run compile validation
+        # Run FAST pre-build validation first (catches common issues before npm ci)
+        from .prebuild_validator import validate_generated_files
         from .validator_agent import ValidatorAgent
         from .code_agent import FileChange
 
@@ -518,6 +519,21 @@ async def run_agentic_generation(
             FileChange(path=path, content=content, action="create")
             for path, content in all_files.items()
         ]
+
+        # Quick Python-based validation (< 1 second vs 3+ minutes for npm build)
+        files_for_prebuild = [
+            {"path": fc.path, "content": fc.content}
+            for fc in file_changes
+            if fc.path.endswith(('.tsx', '.ts', '.jsx', '.js'))
+        ]
+        prebuild_result = validate_generated_files(files_for_prebuild)
+        if not prebuild_result.valid:
+            # Prebuild failed - return error for quick retry without waiting for npm
+            result.success = False
+            result.error = f"Pre-build validation failed: {prebuild_result.to_error_string()}"
+            result.compile_output = prebuild_result.to_error_string()
+            _populate_changed_files(result)
+            return result
 
         validator = ValidatorAgent()
         try:

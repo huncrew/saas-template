@@ -35,6 +35,7 @@ from .repo import get_repo
 from .agents.integration import (
     process_chat_with_agents,
     generate_code_with_agents,
+    smart_generate_code,
     run_async,
 )
 
@@ -1985,7 +1986,7 @@ features:
             async for sse_event in run_autonomous_build_with_sse(
                 project_id=project_id,
                 spec_yaml=spec_yaml,  # Use the local variable we just generated/retrieved
-                generate_code_fn=lambda **kw: run_async(generate_code_with_agents(
+                generate_code_fn=lambda **kw: run_async(smart_generate_code(
                     project_id=kw.get("project_id"),
                     project_name=project.name,
                     template_id=project.template_id,

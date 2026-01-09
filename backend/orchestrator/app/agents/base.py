@@ -71,8 +71,8 @@ class AIClient:
     No Lambda/API Gateway - direct ECS → Bedrock for better performance.
     """
 
-    # Default model - Claude Opus 4.5 via inference profile
-    DEFAULT_MODEL_ID = "us.anthropic.claude-opus-4-5-20251101-v1:0"
+    # Default model - Claude Opus 4.5 via inference profile (full ARN required)
+    DEFAULT_MODEL_ID = "arn:aws:bedrock:us-east-1:992382555562:inference-profile/us.anthropic.claude-opus-4-5-20251101-v1:0"
 
     def __init__(self, model_id: Optional[str] = None):
         self.model_id = model_id or os.getenv("BEDROCK_MODEL_ID") or self.DEFAULT_MODEL_ID

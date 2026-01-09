@@ -24,7 +24,8 @@ from .workspace import Workspace, WORKSPACE_TOOLS, execute_workspace_tool
 @dataclass
 class AgenticCoderConfig:
     """Configuration for the agentic coder."""
-    model_id: str = "us.anthropic.claude-sonnet-4-20250514-v1:0"  # Default to Sonnet for speed
+    # Use full ARN for inference profile - required for cross-region profiles
+    model_id: str = "arn:aws:bedrock:us-east-1:992382555562:inference-profile/us.anthropic.claude-opus-4-5-20251101-v1:0"
     max_tokens: int = 8192
     temperature: float = 0.2
     max_iterations: int = 20  # Max tool calls per generation
@@ -111,9 +112,10 @@ class AgenticCoder:
 
     def __init__(self, config: Optional[AgenticCoderConfig] = None):
         self.config = config or AgenticCoderConfig()
-        self.bedrock = boto3.client("bedrock-runtime")
+        # Explicit region to avoid defaulting to wrong region
+        self.bedrock = boto3.client("bedrock-runtime", region_name="us-east-1")
 
-        # Allow override from environment
+        # Allow override from environment (must be full ARN)
         if os.getenv("BEDROCK_MODEL_ID"):
             self.config.model_id = os.getenv("BEDROCK_MODEL_ID")
 

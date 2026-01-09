@@ -69,20 +69,24 @@ class AIClient:
     """
     Client for calling AI models via Bedrock directly.
     No Lambda/API Gateway - direct ECS → Bedrock for better performance.
+
+    Required env vars (set in Terraform):
+    - BEDROCK_MODEL_ID: Full ARN of the inference profile
+    - AWS_REGION: Region for Bedrock calls (e.g., us-east-1)
     """
 
-    # Default model - Claude Opus 4.5 via inference profile (full ARN required)
-    DEFAULT_MODEL_ID = "arn:aws:bedrock:us-east-1:992382555562:inference-profile/us.anthropic.claude-opus-4-5-20251101-v1:0"
-
     def __init__(self, model_id: Optional[str] = None):
-        self.model_id = model_id or os.getenv("BEDROCK_MODEL_ID") or self.DEFAULT_MODEL_ID
+        self.model_id = model_id or os.getenv("BEDROCK_MODEL_ID")
+        if not self.model_id:
+            raise RuntimeError("BEDROCK_MODEL_ID env var is required")
         self._bedrock = None
 
     @property
     def bedrock(self):
-        """Lazy-init Bedrock client."""
+        """Lazy-init Bedrock client. Uses AWS_REGION env var."""
         if self._bedrock is None:
-            self._bedrock = boto3.client("bedrock-runtime", region_name="us-east-1")
+            # boto3 automatically uses AWS_REGION env var
+            self._bedrock = boto3.client("bedrock-runtime")
         return self._bedrock
 
     def generate(

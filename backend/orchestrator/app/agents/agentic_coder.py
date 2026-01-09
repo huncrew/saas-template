@@ -23,13 +23,19 @@ from .workspace import Workspace, WORKSPACE_TOOLS, execute_workspace_tool
 
 @dataclass
 class AgenticCoderConfig:
-    """Configuration for the agentic coder."""
-    # Use full ARN for inference profile - required for cross-region profiles
-    model_id: str = "arn:aws:bedrock:us-east-1:992382555562:inference-profile/us.anthropic.claude-opus-4-5-20251101-v1:0"
+    """Configuration for the agentic coder.
+
+    model_id is loaded from BEDROCK_MODEL_ID env var (set in Terraform).
+    """
+    model_id: str = ""  # Set from env var in __post_init__
     max_tokens: int = 8192
     temperature: float = 0.2
     max_iterations: int = 20  # Max tool calls per generation
     max_repair_attempts: int = 3  # Max times to retry after compile errors
+
+    def __post_init__(self):
+        if not self.model_id:
+            self.model_id = os.getenv("BEDROCK_MODEL_ID", "")
 
 
 @dataclass
@@ -112,12 +118,11 @@ class AgenticCoder:
 
     def __init__(self, config: Optional[AgenticCoderConfig] = None):
         self.config = config or AgenticCoderConfig()
-        # Explicit region to avoid defaulting to wrong region
-        self.bedrock = boto3.client("bedrock-runtime", region_name="us-east-1")
+        # boto3 uses AWS_REGION env var automatically
+        self.bedrock = boto3.client("bedrock-runtime")
 
-        # Allow override from environment (must be full ARN)
-        if os.getenv("BEDROCK_MODEL_ID"):
-            self.config.model_id = os.getenv("BEDROCK_MODEL_ID")
+        if not self.config.model_id:
+            raise RuntimeError("BEDROCK_MODEL_ID env var is required")
 
     def _call_claude(
         self,

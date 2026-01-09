@@ -771,6 +771,38 @@ def get_project(project_id: str, x_user_id: Optional[str] = Header(default=None)
     return p
 
 
+@app.get("/v1/projects/{project_id}/architecture")
+def get_architecture(project_id: str, x_user_id: Optional[str] = Header(default=None)) -> dict:
+    """
+    Get architecture diagrams for a project.
+
+    Returns Mermaid diagrams generated from the project's spec:
+    - architecture_diagram: High-level architecture flowchart
+    - entity_diagram: Data entity relationships (ER diagram)
+    """
+    from .agents.diagram_generator import generate_architecture_diagram, generate_entity_diagram
+
+    user_id = _require_user(x_user_id)
+    repo = get_repo()
+    p = repo.get_project(user_id, project_id)
+    if not p:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    if not p.spec_yaml:
+        return {
+            "project_id": project_id,
+            "architecture_diagram": None,
+            "entity_diagram": None,
+            "message": "No specification available. Complete chat to generate architecture.",
+        }
+
+    return {
+        "project_id": project_id,
+        "architecture_diagram": generate_architecture_diagram(p.spec_yaml),
+        "entity_diagram": generate_entity_diagram(p.spec_yaml),
+    }
+
+
 @app.get("/v1/projects/{project_id}/chat-history")
 def get_chat_history(
     project_id: str,
@@ -876,6 +908,8 @@ def project_chat(
                 followups=result.get("followups", []),
                 suggested_action=result.get("suggested_action", "ask_followups"),
                 plan=result.get("plan"),
+                architecture_diagram=result.get("architecture_diagram"),
+                entity_diagram=result.get("entity_diagram"),
             )
         except Exception as exc:
             # Fall through to legacy implementation on error

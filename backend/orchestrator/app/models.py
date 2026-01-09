@@ -78,4 +78,8 @@ class ProjectChatResponse(BaseModel):
     followups: list[str] = Field(default_factory=list)
     suggested_action: ChatSuggestedAction = "noop"
     plan: Optional[str] = None
+    # Architecture diagram in Mermaid format (generated from spec)
+    architecture_diagram: Optional[str] = None
+    # Entity relationship diagram in Mermaid format
+    entity_diagram: Optional[str] = None
 

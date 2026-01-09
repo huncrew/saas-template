@@ -20,6 +20,7 @@ from .orchestrator import AgentOrchestrator, OrchestratorState, ProjectPhase
 from .prebuild_validator import validate_generated_files, ValidationResult
 from .validator_agent import ValidatorAgent, ValidationResult as ValidatorResult
 from .code_agent import FileChange
+from .diagram_generator import generate_architecture_diagram, generate_entity_diagram
 
 
 def _use_agentic_coder() -> bool:
@@ -225,8 +226,13 @@ async def process_chat_with_agents(
 
     # Generate spec markdown for backwards compatibility
     spec_markdown = None
+    architecture_diagram = None
+    entity_diagram = None
     if state.spec_yaml:
         spec_markdown = _spec_yaml_to_markdown(state.spec_yaml)
+        # Generate Mermaid diagrams from spec
+        architecture_diagram = generate_architecture_diagram(state.spec_yaml)
+        entity_diagram = generate_entity_diagram(state.spec_yaml)
 
     return {
         "assistant": {"role": "assistant", "content": response.message},
@@ -237,6 +243,8 @@ async def process_chat_with_agents(
         "spec_markdown": spec_markdown,
         "phase": state.phase.value,
         "readiness_score": state.readiness_score,
+        "architecture_diagram": architecture_diagram,
+        "entity_diagram": entity_diagram,
     }
 
 

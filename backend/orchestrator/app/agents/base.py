@@ -5,14 +5,17 @@ Base Agent class and core types for the agent framework.
 from __future__ import annotations
 
 import json
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Generic, Optional, TypeVar
-from urllib import request as urlrequest
-from urllib.error import HTTPError, URLError
 import os
+
+import boto3
+
+logger = logging.getLogger(__name__)
 
 
 class AgentStatus(Enum):
@@ -64,12 +67,23 @@ class AgentResult(Generic[ResultT]):
 
 class AIClient:
     """
-    Client for calling AI models via the backend Lambda.
-    Abstracts away the HTTP details.
+    Client for calling AI models via Bedrock directly.
+    No Lambda/API Gateway - direct ECS → Bedrock for better performance.
     """
 
-    def __init__(self, backend_url: Optional[str] = None):
-        self.backend_url = backend_url or os.getenv("BACKEND_API_URL", "").rstrip("/")
+    # Default model - Claude Opus 4.5 via inference profile
+    DEFAULT_MODEL_ID = "us.anthropic.claude-opus-4-5-20251101-v1:0"
+
+    def __init__(self, model_id: Optional[str] = None):
+        self.model_id = model_id or os.getenv("BEDROCK_MODEL_ID") or self.DEFAULT_MODEL_ID
+        self._bedrock = None
+
+    @property
+    def bedrock(self):
+        """Lazy-init Bedrock client."""
+        if self._bedrock is None:
+            self._bedrock = boto3.client("bedrock-runtime", region_name="us-east-1")
+        return self._bedrock
 
     def generate(
         self,
@@ -80,46 +94,47 @@ class AIClient:
         max_tokens: int = 4096,
     ) -> str:
         """
-        Call the AI generation endpoint.
+        Call Bedrock directly to generate text.
         Returns the raw text response.
         """
-        if not self.backend_url:
-            raise RuntimeError("BACKEND_API_URL not configured")
+        logger.info(f"[AIClient] Calling Bedrock model={self.model_id} tokens={max_tokens}")
 
-        # Build the full prompt with system message if provided
-        full_prompt = prompt
+        # Build messages
+        messages = [{"role": "user", "content": [{"text": prompt}]}]
+
+        # Build system prompts list
+        system_prompts = []
         if system:
-            full_prompt = f"{system}\n\n---\n\n{prompt}"
+            system_prompts = [{"text": system}]
 
-        payload = {
-            "userId": user_id,
-            "prompt": full_prompt,
-            "temperature": temperature,
-            "maxTokens": max_tokens,
-        }
-
-        data = json.dumps(payload).encode("utf-8")
-        req = urlrequest.Request(
-            f"{self.backend_url}/ai/generate",
-            method="POST",
-            data=data,
-            headers={"Content-Type": "application/json"},
-        )
-
+        # Call Bedrock Converse API
         try:
-            with urlrequest.urlopen(req, timeout=120) as resp:
-                body = resp.read().decode("utf-8")
-        except HTTPError as exc:
-            err_body = exc.read().decode("utf-8") if hasattr(exc, "read") else ""
-            raise RuntimeError(f"AI generate failed: {exc.code} {err_body}") from exc
-        except URLError as exc:
+            response = self.bedrock.converse(
+                modelId=self.model_id,
+                messages=messages,
+                system=system_prompts if system_prompts else None,
+                inferenceConfig={
+                    "temperature": temperature,
+                    "maxTokens": max_tokens,
+                },
+            )
+        except Exception as exc:
+            logger.error(f"[AIClient] Bedrock call failed: {exc}")
             raise RuntimeError(f"AI generate failed: {exc}") from exc
 
-        parsed = json.loads(body) if body else {}
-        if not parsed.get("success"):
-            raise RuntimeError(parsed.get("error") or "AI generate failed")
+        # Extract response text
+        output = response.get("output", {})
+        message = output.get("message", {})
+        content_blocks = message.get("content", [])
 
-        return (parsed.get("data") or {}).get("response") or ""
+        text_parts = []
+        for block in content_blocks:
+            if "text" in block:
+                text_parts.append(block["text"])
+
+        result = "\n".join(text_parts)
+        logger.info(f"[AIClient] Got response: {len(result)} chars")
+        return result
 
     def generate_json(
         self,

@@ -31,7 +31,7 @@ class AgenticCoderConfig:
     model_id: str = ""  # Set from env var in __post_init__
     max_tokens: int = 8192
     temperature: float = 0.2
-    max_iterations: int = 20  # Max tool calls per generation
+    max_iterations: int = 40  # Max tool calls per generation
     max_repair_attempts: int = 3  # Max times to retry after compile errors
 
     def __post_init__(self):
@@ -84,11 +84,17 @@ Example: `import { Card, CardHeader, CardTitle, CardContent } from "@/components
 3. Use lucide-react icons, NEVER use <img> tags
 4. For preview builds: use useState with mock data (no backend)
 
-## WORKFLOW
+## WORKFLOW (be efficient!)
 1. Write your types to `frontend/src/types/app-types.ts`
 2. Write your components to `frontend/src/components/app/`
 3. Update pages in `frontend/src/app/(app)/`
-4. Call `finish(summary)` when done
+4. Call `finish(summary)` IMMEDIATELY when files are written
+
+## IMPORTANT: Work efficiently!
+- Do NOT over-explore. You already know what components are available (listed above).
+- Write files directly - don't read every file first.
+- Call `finish()` as soon as you've written the necessary files.
+- A simple app should take ~10 tool calls, not 40.
 
 Make it look GOOD with Tailwind - gradients, shadows, proper spacing. Use REALISTIC mock data.
 """

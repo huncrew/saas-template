@@ -99,10 +99,11 @@ export function ResizableSplit({
       </div>
 
       <div className="lg:hidden h-full">
-        {/* Mobile: Give chat slightly more space (55/45 split) */}
-        <div className="h-full grid grid-rows-[minmax(0,55fr)_minmax(0,45fr)]">
+        {/* Mobile: Stack with chat taking most space, preview panel minimal */}
+        <div className="h-full grid grid-rows-[minmax(0,1fr)_auto]">
           <div className="min-h-0 overflow-hidden border-b border-gray-200">{left}</div>
-          <div className="min-h-0 overflow-hidden">{right}</div>
+          {/* Preview panel - collapsible on mobile, max 40% height */}
+          <div className="min-h-[180px] max-h-[40vh] overflow-auto">{right}</div>
         </div>
       </div>
     </div>

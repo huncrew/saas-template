@@ -320,8 +320,9 @@ export default function ProjectWorkspacePage() {
           }
           right={
             <div className="h-full flex flex-col min-w-0 bg-gradient-to-b from-white to-gray-50/50">
-              <div className="h-12 sm:h-14 px-3 sm:px-5 border-b border-gray-100 bg-white/95 backdrop-blur-sm flex items-center justify-between gap-2">
-                <div className="hidden sm:flex items-center gap-3">
+              {/* Header - hidden on mobile, shown on sm+ */}
+              <div className="hidden sm:flex h-14 px-5 border-b border-gray-100 bg-white/95 backdrop-blur-sm items-center justify-between gap-2">
+                <div className="flex items-center gap-3">
                   <div className="text-xs text-gray-600 bg-gray-100 px-2 py-1 rounded font-mono">
                     Chat → Preview → Deploy
                   </div>
@@ -331,88 +332,98 @@ export default function ProjectWorkspacePage() {
                     </div>
                   )}
                 </div>
-                <div className="flex items-center gap-1.5 sm:gap-2 ml-auto">
+                <div className="flex items-center gap-2">
                   <Button
                     onClick={triggerPreview}
                     disabled={!canTrigger || isTriggering === "autonomous"}
-                    className="gap-1.5 sm:gap-2 h-8 sm:h-9 px-2.5 sm:px-3 bg-emerald-600 hover:bg-emerald-700 shadow-sm text-xs sm:text-sm"
+                    className="gap-2 h-9 px-3 bg-emerald-600 hover:bg-emerald-700 shadow-sm text-sm"
                     size="sm"
                   >
                     {isTriggering === "autonomous" ? (
-                      <RefreshCw className="h-3.5 w-3.5 sm:h-4 sm:w-4 animate-spin" />
+                      <RefreshCw className="h-4 w-4 animate-spin" />
                     ) : (
-                      <Eye className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                      <Eye className="h-4 w-4" />
                     )}
-                    <span className="hidden xs:inline">{isTriggering === "autonomous" ? "Building..." : "Build"}</span>
+                    {isTriggering === "autonomous" ? "Building..." : "Build"}
                   </Button>
                   <Button
                     onClick={triggerDeploy}
                     disabled={!canTrigger}
                     variant="outline"
-                    className="gap-1.5 sm:gap-2 h-8 sm:h-9 px-2.5 sm:px-3 border-emerald-200 hover:bg-emerald-50 hover:border-emerald-300 text-xs sm:text-sm"
+                    className="gap-2 h-9 px-3 border-emerald-200 hover:bg-emerald-50 hover:border-emerald-300 text-sm"
                     size="sm"
                   >
                     {isTriggering === "deploy" ? (
-                      <RefreshCw className="h-3.5 w-3.5 sm:h-4 sm:w-4 animate-spin" />
+                      <RefreshCw className="h-4 w-4 animate-spin" />
                     ) : (
-                      <Rocket className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                      <Rocket className="h-4 w-4" />
                     )}
-                    <span className="hidden sm:inline">Deploy</span>
+                    Deploy
                   </Button>
                 </div>
               </div>
 
-              <div className="flex-1 min-h-0 p-3 sm:p-4 lg:p-5">
+              <div className="flex-1 min-h-0 p-2 sm:p-4 lg:p-5">
                 <Tabs defaultValue="preview" className="w-full h-full flex flex-col">
-                  <div className="overflow-x-auto scrollbar-hide -mx-3 px-3 sm:mx-0 sm:px-0">
-                    <TabsList className="w-fit bg-white/80 backdrop-blur-sm border border-gray-200 shadow-sm">
-                      <TabsTrigger value="preview" className="gap-1.5 sm:gap-2 px-2 sm:px-3 data-[state=active]:bg-emerald-500 data-[state=active]:text-white">
-                        <Eye className="h-4 w-4" /> <span className="hidden xs:inline sm:inline">Preview</span>
+                  {/* Mobile: Compact tabs with inline build button */}
+                  <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide -mx-2 px-2 sm:mx-0 sm:px-0">
+                    <TabsList className="w-fit bg-white/80 backdrop-blur-sm border border-gray-200 shadow-sm h-9">
+                      <TabsTrigger value="preview" className="gap-1 px-2 h-7 text-xs data-[state=active]:bg-emerald-500 data-[state=active]:text-white">
+                        <Eye className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Preview</span>
                       </TabsTrigger>
-                      <TabsTrigger value="changes" className="gap-1.5 sm:gap-2 px-2 sm:px-3 data-[state=active]:bg-emerald-500 data-[state=active]:text-white">
-                        <GitBranch className="h-4 w-4" /> <span className="hidden sm:inline">Changes</span>
+                      <TabsTrigger value="changes" className="gap-1 px-2 h-7 text-xs data-[state=active]:bg-emerald-500 data-[state=active]:text-white">
+                        <GitBranch className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Changes</span>
                       </TabsTrigger>
-                      <TabsTrigger value="architecture" className="gap-1.5 sm:gap-2 px-2 sm:px-3 data-[state=active]:bg-emerald-500 data-[state=active]:text-white">
-                        <Server className="h-4 w-4" /> <span className="hidden md:inline">Architecture</span>
+                      <TabsTrigger value="architecture" className="gap-1 px-2 h-7 text-xs data-[state=active]:bg-emerald-500 data-[state=active]:text-white">
+                        <Server className="h-3.5 w-3.5" /> <span className="hidden md:inline">Arch</span>
                       </TabsTrigger>
-                      <TabsTrigger value="checks" className="gap-1.5 sm:gap-2 px-2 sm:px-3 data-[state=active]:bg-emerald-500 data-[state=active]:text-white">
-                        <ShieldCheck className="h-4 w-4" /> <span className="hidden sm:inline">Checks</span>
+                      <TabsTrigger value="checks" className="gap-1 px-2 h-7 text-xs data-[state=active]:bg-emerald-500 data-[state=active]:text-white">
+                        <ShieldCheck className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Checks</span>
                       </TabsTrigger>
-                      <TabsTrigger value="deploy" className="gap-1.5 sm:gap-2 px-2 sm:px-3 data-[state=active]:bg-emerald-500 data-[state=active]:text-white">
-                        <Globe className="h-4 w-4" /> <span className="hidden xs:inline sm:inline">Deploy</span>
+                      <TabsTrigger value="deploy" className="gap-1 px-2 h-7 text-xs data-[state=active]:bg-emerald-500 data-[state=active]:text-white">
+                        <Globe className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Deploy</span>
                       </TabsTrigger>
                     </TabsList>
+                    {/* Mobile-only build button */}
+                    <Button
+                      onClick={triggerPreview}
+                      disabled={!canTrigger || isTriggering === "autonomous"}
+                      className="sm:hidden h-9 px-3 bg-emerald-600 hover:bg-emerald-700 shadow-sm text-xs flex-shrink-0"
+                      size="sm"
+                    >
+                      {isTriggering === "autonomous" ? (
+                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Play className="h-3.5 w-3.5" />
+                      )}
+                    </Button>
                   </div>
 
-                  <div className="flex-1 min-h-0 mt-4">
+                  <div className="flex-1 min-h-0 mt-2 sm:mt-4">
                     <TabsContent value="preview" className="h-full">
                       <Card className="h-full border-0 shadow-lg bg-white/80 backdrop-blur-sm">
-                        <CardHeader className="flex flex-row items-start justify-between gap-4 pb-4">
-                          <div>
-                            <CardTitle className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-                              <Eye className="h-5 w-5 text-emerald-600" />
+                        {/* Compact header on mobile */}
+                        <CardHeader className="flex flex-row items-center justify-between gap-2 p-3 sm:p-6 pb-2 sm:pb-4">
+                          <div className="flex items-center gap-2">
+                            <Eye className="h-4 w-4 sm:h-5 sm:w-5 text-emerald-600 flex-shrink-0" />
+                            <CardTitle className="text-sm sm:text-lg font-semibold text-gray-900">
                               Live Preview
                             </CardTitle>
-                            <CardDescription className="text-sm text-gray-600">
-                              Interactive preview of your application
-                            </CardDescription>
-                          </div>
-                          <div className="flex items-center gap-2">
                             {previewReady && (
-                              <Badge variant="secondary" className="bg-emerald-100 text-emerald-700">
-                                <CheckCircle className="h-3 w-3 mr-1" />
-                                Ready
+                              <Badge variant="secondary" className="bg-emerald-100 text-emerald-700 text-[10px] sm:text-xs px-1.5 py-0">
+                                <CheckCircle className="h-2.5 w-2.5 sm:h-3 sm:w-3 mr-0.5" />
+                                <span className="hidden sm:inline">Ready</span>
                               </Badge>
                             )}
-                            {previewReady ? (
-                              <Button asChild variant="outline" className="gap-2 border-emerald-200 hover:bg-emerald-50">
-                                <a href={previewUrl} target="_blank" rel="noreferrer">
-                                  <ExternalLink className="h-4 w-4" />
-                                  Open in new tab
-                                </a>
-                              </Button>
-                            ) : null}
                           </div>
+                          {previewReady && (
+                            <Button asChild variant="outline" size="sm" className="gap-1.5 border-emerald-200 hover:bg-emerald-50 h-7 sm:h-9 px-2 sm:px-3 text-xs">
+                              <a href={previewUrl} target="_blank" rel="noreferrer">
+                                <ExternalLink className="h-3 w-3 sm:h-4 sm:w-4" />
+                                <span className="hidden sm:inline">Open</span>
+                              </a>
+                            </Button>
+                          )}
                         </CardHeader>
                         <CardContent className="h-[calc(100%-6rem)] p-0">
                           {/* Autonomous Build Progress - Shown during autonomous build */}

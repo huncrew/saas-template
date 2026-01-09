@@ -22,6 +22,11 @@ from .validator_agent import ValidatorAgent, ValidationResult as ValidatorResult
 from .code_agent import FileChange
 
 
+def _use_agentic_coder() -> bool:
+    """Check if agentic coder is enabled."""
+    return os.getenv("USE_AGENTIC_CODER", "0").lower() in ("1", "true", "yes")
+
+
 # Cache for orchestrator state (in production, use Redis or DynamoDB)
 _STATE_CACHE: dict[str, dict] = {}
 
@@ -402,3 +407,116 @@ def run_async(coro):
             return future.result()
     else:
         return loop.run_until_complete(coro)
+
+
+async def generate_code_agentic(
+    project_id: str,
+    project_name: str,
+    template_id: str,
+    spec_yaml: str,
+    user_id: str,
+    templates_dir,
+    run_compile: bool = True,
+) -> dict:
+    """
+    Generate code using the agentic coder with tool calling.
+
+    This is the "Cursor/Claude Code"-like experience where the model can:
+    - Explore the existing codebase
+    - Read files to understand what's available
+    - Write files incrementally
+    - Fix errors based on compiler output
+
+    Args:
+        project_id: Project ID
+        project_name: Name of the project
+        template_id: Template to use
+        spec_yaml: Specification YAML
+        user_id: User ID
+        templates_dir: Path to templates directory
+        run_compile: Whether to run compile validation
+
+    Returns:
+        Dict with success, files, and status
+    """
+    from .agentic_coder import run_agentic_generation
+    from .code_agent import FileChange
+
+    template_path = str(templates_dir / template_id) if templates_dir else ""
+
+    # Get model ID from environment
+    model_id = os.getenv("BEDROCK_MODEL_ID") or os.getenv("AGENTIC_MODEL_ID")
+
+    result = await run_agentic_generation(
+        spec_yaml=spec_yaml,
+        project_name=project_name,
+        template_path=template_path,
+        user_id=user_id,
+        model_id=model_id,
+        run_compile=run_compile,
+    )
+
+    if result.success:
+        return {
+            "success": True,
+            "files": [
+                {"path": path, "content": "", "action": "create"}
+                for path in result.files_changed
+            ],
+            "files_count": len(result.files_changed),
+            "validated": "succeeded" in result.compile_output.lower() if result.compile_output else False,
+            "summary": result.summary,
+            "iterations": result.iterations,
+            "compile_output": result.compile_output,
+            "agentic": True,
+        }
+    else:
+        return {
+            "success": False,
+            "error": result.error or "Agentic generation failed",
+            "files": [],
+            "validated": False,
+            "iterations": result.iterations,
+            "compile_output": result.compile_output,
+            "agentic": True,
+        }
+
+
+async def smart_generate_code(
+    project_id: str,
+    project_name: str,
+    template_id: str,
+    spec_yaml: str,
+    user_id: str,
+    skeleton_manifest: list[str],
+    templates_dir,
+    modules_dir,
+    additional_instructions: str = "",
+) -> dict:
+    """
+    Smart code generation that chooses between old and agentic coder.
+
+    Use USE_AGENTIC_CODER=1 environment variable to enable the new agentic coder.
+    """
+    if _use_agentic_coder():
+        return await generate_code_agentic(
+            project_id=project_id,
+            project_name=project_name,
+            template_id=template_id,
+            spec_yaml=spec_yaml,
+            user_id=user_id,
+            templates_dir=templates_dir,
+            run_compile=True,
+        )
+    else:
+        return await generate_code_with_agents(
+            project_id=project_id,
+            project_name=project_name,
+            template_id=template_id,
+            spec_yaml=spec_yaml,
+            user_id=user_id,
+            skeleton_manifest=skeleton_manifest,
+            templates_dir=templates_dir,
+            modules_dir=modules_dir,
+            additional_instructions=additional_instructions,
+        )

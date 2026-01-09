@@ -28,6 +28,8 @@ from .autonomous_controller import (
     update_global_learning_state,
 )
 from .orchestrator import AgentOrchestrator, ProjectPhase
+from .workspace import Workspace, WORKSPACE_TOOLS, execute_workspace_tool
+from .agentic_coder import AgenticCoder, AgenticCoderConfig, GenerationResult, run_agentic_generation
 
 __all__ = [
     "Agent",
@@ -50,4 +52,11 @@ __all__ = [
     "update_global_learning_state",
     "AgentOrchestrator",
     "ProjectPhase",
+    "Workspace",
+    "WORKSPACE_TOOLS",
+    "execute_workspace_tool",
+    "AgenticCoder",
+    "AgenticCoderConfig",
+    "GenerationResult",
+    "run_agentic_generation",
 ]

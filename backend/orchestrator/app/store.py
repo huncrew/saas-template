@@ -5,7 +5,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
-from .models import Build, BuildArtifacts, BuildStatus, BuildType, Project, now_iso
+from .models import Build, BuildArtifacts, BuildType, ChatRole, Project, now_iso
 
 
 def _new_id(prefix: str) -> str:
@@ -17,6 +17,7 @@ class InMemoryStore:
     # keyed by user_id
     projects: Dict[str, Dict[str, Project]] = field(default_factory=dict)
     builds: Dict[str, Dict[str, Build]] = field(default_factory=dict)
+    chats: Dict[str, Dict[str, List[dict]]] = field(default_factory=dict)  # user_id -> project_id -> messages
     lock: threading.Lock = field(default_factory=threading.Lock)
 
     def list_projects(self, user_id: str) -> List[Project]:
@@ -76,6 +77,22 @@ class InMemoryStore:
         with self.lock:
             self.projects.clear()
             self.builds.clear()
+            self.chats.clear()
+
+    def append_chat_message(self, user_id: str, project_id: str, role: ChatRole, content: str) -> None:
+        msg = {
+            "message_id": _new_id("msg"),
+            "role": role,
+            "content": content,
+            "created_at": now_iso(),
+        }
+        with self.lock:
+            self.chats.setdefault(user_id, {}).setdefault(project_id, []).append(msg)
+
+    def list_chat_messages(self, user_id: str, project_id: str, limit: int = 50) -> List[dict]:
+        with self.lock:
+            msgs = list(self.chats.get(user_id, {}).get(project_id, []))
+        return msgs[-max(1, min(int(limit), 200)):]
 
 
 STORE = InMemoryStore()

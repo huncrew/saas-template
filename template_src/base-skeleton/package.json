@@ -1,0 +1,12 @@
+{
+  "name": "saas-template-repo",
+  "private": true,
+  "scripts": {
+    "frontend:dev": "cd frontend && npm run dev",
+    "frontend:build": "cd frontend && npm run build",
+    "frontend:lint": "cd frontend && npm run lint",
+    "frontend:type-check": "cd frontend && npm run type-check",
+    "backend:build": "cd backend && make build",
+    "backend:test": "cd backend && make test"
+  }
+}

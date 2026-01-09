@@ -1,31 +1,32 @@
 {
-  "name": "simple-saas-template",
+  "name": "oasify",
   "version": "1.0.0",
-  "description": "A minimal, production-ready SaaS starter template built with Next.js, AWS, and Stripe. Perfect for AI-focused applications with subscription management and modern UI.",
+  "description": "AI-powered application builder platform. Chat with AI to build full-stack applications, get instant previews, and deploy to production with one click.",
   "keywords": [
-    "saas",
-    "template",
+    "ai",
+    "builder",
     "nextjs",
     "aws",
-    "stripe",
-    "ai",
     "typescript",
-    "tailwind"
+    "tailwind",
+    "development",
+    "deployment"
   ],
-  "author": "Simple SaaS Template",
+  "author": "Oasify",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/your-username/simple-saas-template.git"
+    "url": "https://github.com/your-username/oasify.git"
   },
   "bugs": {
-    "url": "https://github.com/your-username/simple-saas-template/issues"
+    "url": "https://github.com/your-username/oasify/issues"
   },
-  "homepage": "https://github.com/your-username/simple-saas-template#readme",
+  "homepage": "https://github.com/your-username/oasify#readme",
   "private": true,
   "scripts": {
     "build": "next build",
-    "dev": "next dev --turbopack",
+    "dev": "bash ./scripts/factory-dev.sh",
+    "dev:raw": "next dev --turbopack",
     "factory:dev": "bash ./scripts/factory-dev.sh",
     "lint": "next lint",
     "start": "next start",
@@ -45,8 +46,10 @@
     "@radix-ui/react-slot": "^1.2.3",
     "@stripe/react-stripe-js": "^3.9.0",
     "@stripe/stripe-js": "^7.8.0",
+    "@types/js-yaml": "^4.0.9",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "js-yaml": "^4.1.1",
     "lucide-react": "^0.539.0",
     "next": "15.4.6",
     "next-auth": "^4.24.11",

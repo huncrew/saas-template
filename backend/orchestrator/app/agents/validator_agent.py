@@ -41,6 +41,8 @@ class ValidatorState(AgentState):
     typescript_errors: list[str] = field(default_factory=list)
     eslint_errors: list[str] = field(default_factory=list)
     python_errors: list[str] = field(default_factory=list)
+    run_full_build: bool = False  # If True, runs npm ci && npm run build
+    build_output: str = ""  # Output from the build command
 
 
 @dataclass
@@ -71,11 +73,13 @@ class ValidatorAgent(Agent[ValidatorState, ValidationResult]):
         self,
         file_changes: Optional[list[FileChange]] = None,
         skeleton_path: Optional[str] = None,
+        run_full_build: bool = False,
         **kwargs
     ) -> ValidatorState:
         return ValidatorState(
             file_changes=file_changes or [],
             skeleton_path=skeleton_path,
+            run_full_build=run_full_build,
             max_iterations=1,  # Validation is single-shot
         )
 
@@ -299,6 +303,148 @@ class ValidatorAgent(Agent[ValidatorState, ValidationResult]):
 
         return errors
 
+    async def _run_full_build(
+        self,
+        workspace: str,
+        state: ValidatorState
+    ) -> list[ValidationError]:
+        """
+        Run a REAL build: npm ci && npm run build.
+        This catches all TypeScript errors, missing exports, type errors, etc.
+        """
+        errors = []
+        frontend_path = os.path.join(workspace, "frontend")
+
+        if not os.path.exists(frontend_path):
+            return errors
+
+        # Check for package.json
+        package_json = os.path.join(frontend_path, "package.json")
+        if not os.path.exists(package_json):
+            return [ValidationError(
+                file="frontend/package.json",
+                line=None,
+                column=None,
+                message="package.json not found",
+                severity="error"
+            )]
+
+        # Step 1: Install dependencies with npm ci
+        code, stdout, stderr = await self._run_command(
+            ["npm", "ci"],
+            cwd=frontend_path,
+            timeout=180,  # 3 minutes for npm ci
+        )
+
+        if code != 0:
+            error_output = (stderr + stdout)[:2000]
+            errors.append(ValidationError(
+                file="frontend",
+                line=None,
+                column=None,
+                message=f"npm ci failed: {error_output}",
+                severity="error"
+            ))
+            state.build_output = error_output
+            return errors
+
+        # Step 2: Run the actual build
+        code, stdout, stderr = await self._run_command(
+            ["npm", "run", "build"],
+            cwd=frontend_path,
+            timeout=300,  # 5 minutes for build
+        )
+
+        build_output = stdout + stderr
+        state.build_output = build_output[:5000]  # Store first 5k chars
+
+        if code != 0:
+            # Parse build errors - Next.js outputs TypeScript errors here
+            errors.extend(self._parse_build_errors(build_output, "frontend"))
+
+        return errors
+
+    def _parse_build_errors(self, output: str, base_path: str) -> list[ValidationError]:
+        """Parse errors from Next.js/TypeScript build output."""
+        errors = []
+        lines = output.split("\n")
+
+        current_file = None
+        for line in lines:
+            line = line.strip()
+
+            # Next.js error format: ./src/path/file.tsx
+            if line.startswith("./"):
+                current_file = line[2:]  # Remove ./
+                continue
+
+            # TypeScript error: Type error: message
+            if line.startswith("Type error:"):
+                message = line.replace("Type error:", "").strip()
+                errors.append(ValidationError(
+                    file=f"{base_path}/{current_file}" if current_file else base_path,
+                    line=None,
+                    column=None,
+                    message=message,
+                    severity="error"
+                ))
+
+            # Module not found: message
+            if "Module not found:" in line:
+                errors.append(ValidationError(
+                    file=f"{base_path}/{current_file}" if current_file else base_path,
+                    line=None,
+                    column=None,
+                    message=line,
+                    severity="error"
+                ))
+
+            # Cannot find module 'x'
+            if "Cannot find module" in line or "Cannot find name" in line:
+                errors.append(ValidationError(
+                    file=f"{base_path}/{current_file}" if current_file else base_path,
+                    line=None,
+                    column=None,
+                    message=line,
+                    severity="error"
+                ))
+
+            # Property 'x' does not exist
+            if "does not exist" in line and ("Property" in line or "Type" in line):
+                errors.append(ValidationError(
+                    file=f"{base_path}/{current_file}" if current_file else base_path,
+                    line=None,
+                    column=None,
+                    message=line,
+                    severity="error"
+                ))
+
+            # Error format with line:col: TS error
+            # e.g., src/app/page.tsx(12,5): error TS2304: Cannot find name 'X'
+            if "error TS" in line:
+                errors.append(ValidationError(
+                    file=f"{base_path}/{current_file}" if current_file else base_path,
+                    line=None,
+                    column=None,
+                    message=line,
+                    severity="error"
+                ))
+
+        # If we found no specific errors but build failed, add generic error
+        if not errors and "error" in output.lower():
+            # Extract first few error-looking lines
+            error_lines = [l for l in lines if "error" in l.lower() or "Error" in l][:5]
+            if error_lines:
+                errors.append(ValidationError(
+                    file=base_path,
+                    line=None,
+                    column=None,
+                    message="; ".join(error_lines),
+                    severity="error"
+                ))
+
+        return errors
+
     def cleanup(self) -> None:
         """Clean up temporary workspaces."""
         for path in self._cleanup_paths:
@@ -316,6 +462,9 @@ class ValidatorAgent(Agent[ValidatorState, ValidationResult]):
     ) -> AgentResult[ValidationResult]:
         """
         Validate the generated code.
+
+        If run_full_build=True, runs npm ci && npm run build for real validation.
+        Otherwise, runs lightweight checks (tsc --noEmit, eslint if node_modules exists).
         """
         if not state.file_changes:
             return AgentResult(
@@ -336,14 +485,27 @@ class ValidatorAgent(Agent[ValidatorState, ValidationResult]):
             state.workspace_path = workspace
             state.update()
 
-            # Run validations in parallel
-            ts_errors, eslint_errors, py_errors = await asyncio.gather(
-                self._validate_typescript(workspace),
-                self._validate_eslint(workspace),
-                self._validate_python(workspace),
-            )
+            all_errors: list[ValidationError] = []
 
-            all_errors = ts_errors + eslint_errors + py_errors
+            if state.run_full_build:
+                # REAL BUILD: npm ci && npm run build
+                # This catches ALL TypeScript errors, missing exports, type errors
+                build_errors = await self._run_full_build(workspace, state)
+                all_errors.extend(build_errors)
+
+                # Also run Python validation if there's a backend
+                py_errors = await self._validate_python(workspace)
+                all_errors.extend(py_errors)
+            else:
+                # LIGHTWEIGHT: Quick checks without installing dependencies
+                # Note: This may miss errors that only show up at build time
+                ts_errors, eslint_errors, py_errors = await asyncio.gather(
+                    self._validate_typescript(workspace),
+                    self._validate_eslint(workspace),
+                    self._validate_python(workspace),
+                )
+                all_errors = ts_errors + eslint_errors + py_errors
+
             state.validation_errors = all_errors
 
             # Count by severity
@@ -357,7 +519,8 @@ class ValidatorAgent(Agent[ValidatorState, ValidationResult]):
 
             is_valid = error_count == 0
 
-            summary = f"Validation {'passed' if is_valid else 'failed'}: "
+            mode = "full build" if state.run_full_build else "quick check"
+            summary = f"Validation ({mode}) {'passed' if is_valid else 'failed'}: "
             summary += f"{error_count} errors, {warning_count} warnings"
 
             result = ValidationResult(

@@ -21,9 +21,9 @@ import {
 
 function BuildStatusPill({ build }: { build?: FactoryBuild }) {
   if (!build) return (
-    <Badge variant="secondary" className="text-xs font-mono">
-      <Clock className="h-3 w-3 mr-1" />
-      No builds yet
+    <Badge variant="secondary" className="text-[10px] sm:text-xs font-mono px-1.5 sm:px-2 py-0.5">
+      <Clock className="h-2.5 w-2.5 sm:h-3 sm:w-3 mr-0.5 sm:mr-1" />
+      <span className="hidden sm:inline">No builds</span>
     </Badge>
   );
 
@@ -59,9 +59,9 @@ function BuildStatusPill({ build }: { build?: FactoryBuild }) {
   const { color, icon: Icon, pulse } = getStatusConfig();
 
   return (
-    <div className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border ring-1 font-mono ${color}`}>
-      <Icon className={`h-3 w-3 ${pulse ? 'animate-spin' : ''}`} />
-      {build.type} • {build.status}
+    <div className={`inline-flex items-center gap-1 sm:gap-1.5 text-[10px] sm:text-xs px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded-full border ring-1 font-mono ${color}`}>
+      <Icon className={`h-2.5 w-2.5 sm:h-3 sm:w-3 ${pulse ? 'animate-spin' : ''}`} />
+      <span className="hidden sm:inline">{build.type} •</span> {build.status}
     </div>
   );
 }
@@ -74,7 +74,17 @@ export default function ProjectWorkspacePage() {
   const [activeBuild, setActiveBuild] = useState<FactoryBuild | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [projectLoadError, setProjectLoadError] = useState<string | null>(null);
-  const [isTriggering, setIsTriggering] = useState<"preview" | "deploy" | null>(null);
+  const [isTriggering, setIsTriggering] = useState<"preview" | "deploy" | "autonomous" | null>(null);
+
+  // Autonomous build progress state
+  const [isAutonomousMode, setIsAutonomousMode] = useState(false);
+  const [autonomousProgress, setAutonomousProgress] = useState<{
+    attempt: number;
+    max_attempts: number;
+    message: string;
+    errors: string[];
+    improvements: string[];
+  } | null>(null);
 
   const previewUrl = activeBuild?.artifacts?.preview_url;
   const previewReady = !!previewUrl && activeBuild?.type === "preview" && activeBuild?.status === "succeeded";
@@ -141,15 +151,98 @@ export default function ProjectWorkspacePage() {
   }, [activeBuild?.build_id, activeBuild?.status]);
 
   async function triggerPreview() {
+    // Use autonomous build flow (includes retry loop with AI fixes)
+    triggerAutonomousBuild();
+  }
+
+  async function triggerAutonomousBuild() {
     if (!canTrigger) return;
-    setIsTriggering("preview");
+    setIsTriggering("autonomous");
+    setIsAutonomousMode(true);
+    setAutonomousProgress({
+      attempt: 1,
+      max_attempts: 3,
+      message: "Starting autonomous build...",
+      errors: [],
+      improvements: [],
+    });
+
     try {
-      const res = await factoryApi.createPreviewBuild(projectId);
-      setActiveBuild(res.data || null);
-      toast.success("Preview build started");
+      // Use the Next.js API route that properly injects X-User-Id header
+      const response = await fetch(`/api/factory/projects/${projectId}/build-autonomous`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Build request failed: ${response.status}`);
+      }
+
+      // Read SSE stream
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      const collectedErrors: string[] = [];
+      const collectedImprovements: string[] = [];
+
+      while (reader) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            try {
+              const data = JSON.parse(line.slice(6));
+
+              // Handle different phases
+              if (data.phase === "building" || data.phase === "analyzing_errors" || data.phase === "retrying" || data.phase === "generating") {
+                if (data.errors && data.errors.length > 0) {
+                  collectedErrors.push(...data.errors.filter((e: string) => !collectedErrors.includes(e)));
+                }
+                if (data.improvements && data.improvements.length > 0) {
+                  collectedImprovements.push(...data.improvements.filter((i: string) => !collectedImprovements.includes(i)));
+                }
+                setAutonomousProgress({
+                  attempt: data.attempt || 1,
+                  max_attempts: data.max_attempts || 3,
+                  message: data.message || "Building...",
+                  errors: collectedErrors.slice(-5),
+                  improvements: collectedImprovements.slice(-5),
+                });
+              }
+
+              if (data.phase === "succeeded") {
+                toast.success("Autonomous build succeeded!");
+                setIsAutonomousMode(false);
+                setAutonomousProgress(null);
+                // Refresh build info using the build_id from the event
+                if (data.build_id) {
+                  const buildRes = await factoryApi.getBuild(data.build_id);
+                  if (buildRes.data) setActiveBuild(buildRes.data);
+                }
+              }
+
+              if (data.phase === "failed") {
+                toast.error(data.message || "Build failed after retries");
+                setIsAutonomousMode(false);
+                setAutonomousProgress(null);
+              }
+            } catch {
+              // Ignore JSON parse errors for incomplete data
+            }
+          }
+        }
+      }
     } catch (e) {
-      console.error(e);
-      toast.error(e instanceof Error ? e.message : "Failed to start preview build");
+      console.error("Autonomous build error:", e);
+      toast.error(e instanceof Error ? e.message : "Autonomous build failed");
+      setIsAutonomousMode(false);
+      setAutonomousProgress(null);
     } finally {
       setIsTriggering(null);
     }
@@ -193,17 +286,19 @@ export default function ProjectWorkspacePage() {
           storageKey={`factory.split.${projectId}`}
           left={
             <div className="h-full bg-white border-r border-gray-200 shadow-sm">
-              <div className="h-14 px-5 border-b border-gray-100 bg-white/80 backdrop-blur-sm flex items-center justify-between">
-                <div className="min-w-0">
-                  <div className="text-sm font-semibold text-gray-900 truncate flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <div className="h-12 sm:h-14 px-3 sm:px-5 border-b border-gray-100 bg-white/80 backdrop-blur-sm flex items-center justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs sm:text-sm font-semibold text-gray-900 truncate flex items-center gap-1.5 sm:gap-2">
+                    <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-emerald-500 animate-pulse flex-shrink-0" />
                     {project?.name || "Project"}
                   </div>
-                  <div className="text-xs text-gray-500 truncate font-mono">
-                    {project?.template_id} • {projectId?.slice(0, 8)}…
+                  <div className="text-[10px] sm:text-xs text-gray-500 truncate font-mono">
+                    {projectId?.slice(0, 8)}…
                   </div>
                 </div>
-                <BuildStatusPill build={activeBuild || undefined} />
+                <div className="flex-shrink-0">
+                  <BuildStatusPill build={activeBuild || undefined} />
+                </div>
               </div>
               {projectLoadError ? (
                 <div className="p-4">
@@ -225,67 +320,69 @@ export default function ProjectWorkspacePage() {
           }
           right={
             <div className="h-full flex flex-col min-w-0 bg-gradient-to-b from-white to-gray-50/50">
-              <div className="h-14 px-5 border-b border-gray-100 bg-white/95 backdrop-blur-sm flex items-center justify-between">
-                <div className="flex items-center gap-3">
+              <div className="h-12 sm:h-14 px-3 sm:px-5 border-b border-gray-100 bg-white/95 backdrop-blur-sm flex items-center justify-between gap-2">
+                <div className="hidden sm:flex items-center gap-3">
                   <div className="text-xs text-gray-600 bg-gray-100 px-2 py-1 rounded font-mono">
                     Chat → Preview → Deploy
                   </div>
                   {activeBuild && (
-                    <div className="text-xs text-gray-500 font-mono">
-                      Last build: {activeBuild.started_at ? new Date(activeBuild.started_at).toLocaleTimeString() : 'Unknown'}
+                    <div className="hidden lg:block text-xs text-gray-500 font-mono">
+                      {activeBuild.started_at ? new Date(activeBuild.started_at).toLocaleTimeString() : ''}
                     </div>
                   )}
                 </div>
-                <div className="flex items-center gap-2">
-                  <Button 
-                    onClick={triggerPreview} 
-                    disabled={!canTrigger} 
-                    className="gap-2 h-9 bg-emerald-600 hover:bg-emerald-700 shadow-sm"
+                <div className="flex items-center gap-1.5 sm:gap-2 ml-auto">
+                  <Button
+                    onClick={triggerPreview}
+                    disabled={!canTrigger || isTriggering === "autonomous"}
+                    className="gap-1.5 sm:gap-2 h-8 sm:h-9 px-2.5 sm:px-3 bg-emerald-600 hover:bg-emerald-700 shadow-sm text-xs sm:text-sm"
                     size="sm"
                   >
-                    {isTriggering === "preview" ? (
-                      <RefreshCw className="h-4 w-4 animate-spin" />
+                    {isTriggering === "autonomous" ? (
+                      <RefreshCw className="h-3.5 w-3.5 sm:h-4 sm:w-4 animate-spin" />
                     ) : (
-                      <Eye className="h-4 w-4" />
+                      <Eye className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                     )}
-                    Preview
+                    <span className="hidden xs:inline">{isTriggering === "autonomous" ? "Building..." : "Build"}</span>
                   </Button>
-                  <Button 
-                    onClick={triggerDeploy} 
-                    disabled={!canTrigger} 
-                    variant="outline" 
-                    className="gap-2 h-9 border-emerald-200 hover:bg-emerald-50 hover:border-emerald-300"
+                  <Button
+                    onClick={triggerDeploy}
+                    disabled={!canTrigger}
+                    variant="outline"
+                    className="gap-1.5 sm:gap-2 h-8 sm:h-9 px-2.5 sm:px-3 border-emerald-200 hover:bg-emerald-50 hover:border-emerald-300 text-xs sm:text-sm"
                     size="sm"
                   >
                     {isTriggering === "deploy" ? (
-                      <RefreshCw className="h-4 w-4 animate-spin" />
+                      <RefreshCw className="h-3.5 w-3.5 sm:h-4 sm:w-4 animate-spin" />
                     ) : (
-                      <Rocket className="h-4 w-4" />
+                      <Rocket className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                     )}
-                    Deploy
+                    <span className="hidden sm:inline">Deploy</span>
                   </Button>
                 </div>
               </div>
 
-              <div className="flex-1 min-h-0 p-5">
+              <div className="flex-1 min-h-0 p-3 sm:p-4 lg:p-5">
                 <Tabs defaultValue="preview" className="w-full h-full flex flex-col">
-                  <TabsList className="w-fit bg-white/80 backdrop-blur-sm border border-gray-200 shadow-sm">
-                    <TabsTrigger value="preview" className="gap-2 data-[state=active]:bg-emerald-500 data-[state=active]:text-white">
-                      <Eye className="h-4 w-4" /> Preview
-                    </TabsTrigger>
-                    <TabsTrigger value="changes" className="gap-2 data-[state=active]:bg-emerald-500 data-[state=active]:text-white">
-                      <GitBranch className="h-4 w-4" /> Changes
-                    </TabsTrigger>
-                    <TabsTrigger value="architecture" className="gap-2 data-[state=active]:bg-emerald-500 data-[state=active]:text-white">
-                      <Server className="h-4 w-4" /> Architecture
-                    </TabsTrigger>
-                    <TabsTrigger value="checks" className="gap-2 data-[state=active]:bg-emerald-500 data-[state=active]:text-white">
-                      <ShieldCheck className="h-4 w-4" /> Checks
-                    </TabsTrigger>
-                    <TabsTrigger value="deploy" className="gap-2 data-[state=active]:bg-emerald-500 data-[state=active]:text-white">
-                      <Globe className="h-4 w-4" /> Deploy
-                    </TabsTrigger>
-                  </TabsList>
+                  <div className="overflow-x-auto scrollbar-hide -mx-3 px-3 sm:mx-0 sm:px-0">
+                    <TabsList className="w-fit bg-white/80 backdrop-blur-sm border border-gray-200 shadow-sm">
+                      <TabsTrigger value="preview" className="gap-1.5 sm:gap-2 px-2 sm:px-3 data-[state=active]:bg-emerald-500 data-[state=active]:text-white">
+                        <Eye className="h-4 w-4" /> <span className="hidden xs:inline sm:inline">Preview</span>
+                      </TabsTrigger>
+                      <TabsTrigger value="changes" className="gap-1.5 sm:gap-2 px-2 sm:px-3 data-[state=active]:bg-emerald-500 data-[state=active]:text-white">
+                        <GitBranch className="h-4 w-4" /> <span className="hidden sm:inline">Changes</span>
+                      </TabsTrigger>
+                      <TabsTrigger value="architecture" className="gap-1.5 sm:gap-2 px-2 sm:px-3 data-[state=active]:bg-emerald-500 data-[state=active]:text-white">
+                        <Server className="h-4 w-4" /> <span className="hidden md:inline">Architecture</span>
+                      </TabsTrigger>
+                      <TabsTrigger value="checks" className="gap-1.5 sm:gap-2 px-2 sm:px-3 data-[state=active]:bg-emerald-500 data-[state=active]:text-white">
+                        <ShieldCheck className="h-4 w-4" /> <span className="hidden sm:inline">Checks</span>
+                      </TabsTrigger>
+                      <TabsTrigger value="deploy" className="gap-1.5 sm:gap-2 px-2 sm:px-3 data-[state=active]:bg-emerald-500 data-[state=active]:text-white">
+                        <Globe className="h-4 w-4" /> <span className="hidden xs:inline sm:inline">Deploy</span>
+                      </TabsTrigger>
+                    </TabsList>
+                  </div>
 
                   <div className="flex-1 min-h-0 mt-4">
                     <TabsContent value="preview" className="h-full">
@@ -318,7 +415,78 @@ export default function ProjectWorkspacePage() {
                           </div>
                         </CardHeader>
                         <CardContent className="h-[calc(100%-6rem)] p-0">
-                          {previewReady ? (
+                          {/* Autonomous Build Progress - Shown during autonomous build */}
+                          {isAutonomousMode && autonomousProgress ? (
+                            <div className="h-full w-full rounded-xl border border-blue-200 bg-gradient-to-br from-blue-50 to-emerald-50 flex items-center justify-center p-6">
+                              <div className="max-w-lg w-full">
+                                <div className="flex items-center gap-3 mb-6">
+                                  <div className="w-16 h-16 bg-gradient-to-br from-blue-100 to-emerald-100 rounded-full flex items-center justify-center">
+                                    <RefreshCw className="w-8 h-8 text-blue-600 animate-spin" />
+                                  </div>
+                                  <div>
+                                    <div className="text-lg font-semibold text-gray-900">AI Building Your App</div>
+                                    <div className="text-sm text-gray-600">Automatic error detection and fixes</div>
+                                  </div>
+                                  <Badge className="ml-auto bg-blue-100 text-blue-700 border-blue-200">
+                                    Attempt {autonomousProgress.attempt}/{autonomousProgress.max_attempts}
+                                  </Badge>
+                                </div>
+
+                                {/* Progress Bar */}
+                                <div className="w-full bg-gray-200 rounded-full h-2 mb-4">
+                                  <div
+                                    className="bg-gradient-to-r from-blue-500 to-emerald-500 h-2 rounded-full transition-all duration-500"
+                                    style={{ width: `${(autonomousProgress.attempt / autonomousProgress.max_attempts) * 100}%` }}
+                                  />
+                                </div>
+
+                                {/* Current Status */}
+                                <div className="text-sm text-gray-700 mb-4 p-3 bg-white/70 rounded-lg border border-gray-200">
+                                  <RefreshCw className="h-4 w-4 inline mr-2 animate-spin text-blue-600" />
+                                  {autonomousProgress.message}
+                                </div>
+
+                                {/* Errors Found */}
+                                {autonomousProgress.errors.length > 0 && (
+                                  <div className="mb-4">
+                                    <div className="text-sm font-medium text-red-700 mb-2 flex items-center gap-2">
+                                      <XCircle className="h-4 w-4" />
+                                      Errors Found ({autonomousProgress.errors.length})
+                                    </div>
+                                    <div className="space-y-2 max-h-32 overflow-auto">
+                                      {autonomousProgress.errors.slice(-3).map((err, i) => (
+                                        <div key={i} className="text-xs text-red-600 p-2 bg-red-50 rounded border border-red-200 font-mono">
+                                          {err.length > 150 ? err.slice(0, 150) + '...' : err}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Improvements Being Applied */}
+                                {autonomousProgress.improvements.length > 0 && (
+                                  <div>
+                                    <div className="text-sm font-medium text-emerald-700 mb-2 flex items-center gap-2">
+                                      <CheckCircle className="h-4 w-4" />
+                                      AI Fixing Issues
+                                    </div>
+                                    <div className="space-y-2">
+                                      {autonomousProgress.improvements.slice(-3).map((imp, i) => (
+                                        <div key={i} className="text-xs text-emerald-600 p-2 bg-emerald-50 rounded border border-emerald-200 flex items-start gap-2">
+                                          <CheckCircle className="h-3 w-3 mt-0.5 flex-shrink-0" />
+                                          {imp}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+
+                                <div className="text-xs text-gray-500 mt-4 text-center">
+                                  The AI is automatically detecting and fixing build errors
+                                </div>
+                              </div>
+                            </div>
+                          ) : previewReady ? (
                             <div className="h-full w-full overflow-hidden bg-white border border-gray-200 rounded-xl shadow-inner">
                               <div className="h-8 bg-gray-50 border-b border-gray-200 flex items-center px-4 gap-3">
                                 <div className="flex gap-1.5">

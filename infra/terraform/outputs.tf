@@ -44,8 +44,23 @@ output "factory_preview_cloudfront_domain" {
 }
 
 output "factory_orchestrator_base_url" {
-  description = "Base URL (HTTP) for the Factory orchestrator behind the ALB."
-  value       = "http://${aws_lb.factory.dns_name}"
+  description = "Base URL (HTTPS) for the Factory orchestrator (orchestrator.<domain>)"
+  value       = "https://${local.factory_orchestrator_fqdn}"
+}
+
+output "factory_frontend_url" {
+  description = "Primary URL for the Factory frontend."
+  value       = "https://${var.factory_domain_name}"
+}
+
+output "factory_frontend_ecr_repository_url" {
+  description = "ECR repository URL for the frontend image."
+  value       = aws_ecr_repository.factory_frontend.repository_url
+}
+
+output "factory_codebuild_frontend_build_project_name" {
+  description = "CodeBuild project name that builds/pushes the frontend image (if enabled)."
+  value       = var.factory_frontend_build_enabled ? aws_codebuild_project.factory_frontend_build[0].name : ""
 }
 
 output "factory_orchestrator_ecr_repository_url" {

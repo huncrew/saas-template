@@ -4,17 +4,21 @@
 FACTORY_DEV_NO_AUTH=1
 NEXT_PUBLIC_FACTORY_DEV_NO_AUTH=1
 
-# Live AWS orchestrator (ECS/Fargate behind ALB)
-ORCHESTRATOR_API_URL=http://factory-dev-factory-75479547.us-east-1.elb.amazonaws.com
-NEXT_PUBLIC_ORCHESTRATOR_API_URL=http://factory-dev-factory-75479547.us-east-1.elb.amazonaws.com
+# Local orchestrator for development (run: cd backend/orchestrator && uvicorn app.main:app --port 8080)
+ORCHESTRATOR_API_URL=http://localhost:8080
+NEXT_PUBLIC_ORCHESTRATOR_API_URL=http://localhost:8080
+
+# Live AWS orchestrator (ECS/Fargate behind ALB) - uncomment for production testing
+# ORCHESTRATOR_API_URL=https://orchestrator.oasify.ai
+# NEXT_PUBLIC_ORCHESTRATOR_API_URL=https://orchestrator.oasify.ai
 
 # Live AWS API Gateway base URL (Lambda handlers like /ai/generate)
 BACKEND_API_URL=https://qh14okywbi.execute-api.us-east-1.amazonaws.com/dev
 NEXT_PUBLIC_API_BASE_URL=https://qh14okywbi.execute-api.us-east-1.amazonaws.com/dev
 
-# Clerk (not needed when FACTORY_DEV_NO_AUTH=1)
-# NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=
-# CLERK_SECRET_KEY=
+# Clerk (optional locally; enable if you want localhost to behave like prod)
+# NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_live_...
+# CLERK_SECRET_KEY=sk_live_...
 # CLERK_SIGN_IN_URL=/auth/signin
 # CLERK_SIGN_UP_URL=/auth/signup
 # CLERK_AFTER_SIGN_IN_URL=/projects

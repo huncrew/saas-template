@@ -1,6 +1,46 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 
+async function generateWithOpenAI(args: {
+  prompt: string;
+  model: string;
+  temperature: number;
+  maxTokens: number;
+}) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    throw new Error("OPENAI_API_KEY is not configured");
+  }
+
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: args.model,
+      temperature: args.temperature,
+      max_tokens: args.maxTokens,
+      messages: [{ role: "user", content: args.prompt }],
+    }),
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const msg = data?.error?.message || data?.message || "OpenAI request failed";
+    const err = new Error(msg) as Error & { status?: number; retryAfter?: string };
+    err.status = res.status;
+    err.retryAfter = res.headers.get("retry-after") || undefined;
+    throw err;
+  }
+
+  const text = data?.choices?.[0]?.message?.content || "";
+  const requestId = res.headers.get("x-request-id") || data?.id || "openai";
+  const tokens = Number(data?.usage?.total_tokens || 0);
+  return { text, requestId, tokens };
+}
+
 export async function POST(request: NextRequest) {
   try {
     const devNoAuth = process.env.FACTORY_DEV_NO_AUTH === "1";
@@ -20,7 +60,39 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Call the backend Lambda function
+    const normalizedModel = (model || "").toString();
+    const temp = typeof temperature === "number" ? temperature : 0.7;
+    const maxT = typeof maxTokens === "number" ? maxTokens : 1000;
+
+    // If OPENAI_API_KEY is configured and model looks like an OpenAI model, call OpenAI directly.
+    // This keeps local/prod working even if your backend is still on Bedrock.
+    if (
+      process.env.OPENAI_API_KEY &&
+      (normalizedModel.startsWith("gpt-") ||
+        normalizedModel.startsWith("o1-") ||
+        normalizedModel.startsWith("openai:"))
+    ) {
+      const modelName = normalizedModel.startsWith("openai:")
+        ? normalizedModel.slice("openai:".length)
+        : normalizedModel;
+      const { text, requestId, tokens } = await generateWithOpenAI({
+        prompt: normalizedPrompt,
+        model: modelName || "gpt-4o-mini",
+        temperature: temp,
+        maxTokens: maxT,
+      });
+      return NextResponse.json({
+        success: true,
+        data: {
+          response: text,
+          model: modelName || "gpt-4o-mini",
+          tokens,
+          requestId,
+        },
+      });
+    }
+
+    // Otherwise call the backend Lambda function (Bedrock).
     const backendUrl =
       process.env.BACKEND_API_URL ||
       process.env.NEXT_PUBLIC_API_BASE_URL ||
@@ -70,9 +142,9 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify({
         userId,
         prompt: normalizedPrompt,
-        model: model || 'anthropic.claude-3-haiku-20240307-v1:0',
-        temperature: temperature || 0.7,
-        maxTokens: maxTokens || 1000,
+        model: normalizedModel || 'anthropic.claude-3-haiku-20240307-v1:0',
+        temperature: temp,
+        maxTokens: maxT,
       }),
     });
 

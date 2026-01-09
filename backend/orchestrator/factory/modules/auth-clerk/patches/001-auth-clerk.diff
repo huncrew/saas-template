@@ -1,0 +1,54 @@
+diff --git a/frontend/src/app/dashboard/layout.tsx b/frontend/src/app/dashboard/layout.tsx
+index 32819f8..01ed02c 100644
+--- a/frontend/src/app/dashboard/layout.tsx
++++ b/frontend/src/app/dashboard/layout.tsx
+@@ -1,9 +1,44 @@
++"use client";
++
++import dynamic from "next/dynamic";
++import { ClerkGate } from "@/components/providers/clerk-gate";
++
++const SignedIn = dynamic(
++  () => import("@clerk/clerk-react").then((m) => m.SignedIn),
++  { ssr: false }
++);
++const SignedOut = dynamic(
++  () => import("@clerk/clerk-react").then((m) => m.SignedOut),
++  { ssr: false }
++);
++const SignIn = dynamic(
++  () => import("@clerk/clerk-react").then((m) => m.SignIn),
++  { ssr: false }
++);
++
+ export default function DashboardLayout({
+   children,
+ }: {
+   children: React.ReactNode;
+ }) {
+-  // Serverless-first: dashboard is navigable without auth in preview/dev mode.
+-  // Production auth is handled by your chosen provider (Clerk) at the app level.
+-  return children;
+-}
+\ No newline at end of file
++  const devNoAuth = process.env.NEXT_PUBLIC_FACTORY_DEV_NO_AUTH === "1";
++  if (devNoAuth) return children;
++
++  return (
++    <ClerkGate>
++      <div className="w-full">
++        <div className="px-4 py-2 text-xs font-mono bg-emerald-50 border-b border-emerald-200 text-emerald-800">
++          module: auth-clerk enabled
++        </div>
++        <SignedIn>{children}</SignedIn>
++        <SignedOut>
++          <div className="min-h-[70vh] flex items-center justify-center p-6">
++            <div className="max-w-md w-full">
++              <SignIn />
++            </div>
++          </div>
++        </SignedOut>
++      </div>
++    </ClerkGate>
++  );
++}

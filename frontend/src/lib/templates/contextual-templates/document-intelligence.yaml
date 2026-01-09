@@ -1,0 +1,414 @@
+# Document Intelligence Contextual Template
+# Context-driven template that adapts based on user requirements
+
+metadata:
+  id: "document-intelligence"
+  name: "Document Intelligence Platform"
+  description: "AI-powered document analysis, Q&A, and intelligent processing"
+  category: "ai-applications"
+  tags: ["ai", "nlp", "documents", "rag", "chat"]
+  version: "1.0.0"
+  author: "Oasify"
+  license: "MIT"
+  difficulty: "intermediate"
+  estimatedBuildTime: "15-25 minutes"
+  icon: "📄"
+  preview:
+    images: 
+      - "/templates/document-ai/preview1.png"
+      - "/templates/document-ai/preview2.png"
+    liveDemo: "https://doc-ai-demo.oasify.build"
+
+# Context analysis to understand user needs
+context:
+  domain:
+    primary: "document-processing"
+    industries: ["legal", "healthcare", "finance", "education", "research", "consulting"]
+    use_cases:
+      - "Legal document analysis and contract review"
+      - "Medical record analysis with HIPAA compliance"
+      - "Financial document processing and compliance"
+      - "Academic research paper analysis and citation"
+      - "Technical documentation Q&A systems"
+      - "Insurance claims processing automation"
+      - "HR document management and analysis"
+
+  user_types:
+    - type: "internal-tool"
+      description: "Internal company document processing"
+      features: ["bulk_processing", "workflow_integration", "audit_trails"]
+    - type: "customer-facing"
+      description: "Customer document upload and analysis"
+      features: ["user_accounts", "privacy_controls", "usage_limits"]
+    - type: "b2b-platform"
+      description: "Document processing as a service"
+      features: ["api_access", "white_labeling", "tenant_isolation"]
+    - type: "enterprise"
+      description: "Large-scale enterprise deployment"
+      features: ["sso_integration", "compliance_reporting", "custom_models"]
+
+  data_types:
+    - "pdf_documents"
+    - "word_documents" 
+    - "images_with_text"
+    - "structured_documents"
+    - "handwritten_notes"
+    - "forms_and_tables"
+    - "legal_contracts"
+    - "medical_records"
+    - "financial_statements"
+
+  compliance_requirements:
+    - standard: "GDPR"
+      level: "strict"
+      features: ["data_encryption", "right_to_deletion", "consent_management"]
+    - standard: "HIPAA"
+      level: "enterprise" 
+      features: ["baa_compliance", "audit_logging", "access_controls"]
+    - standard: "SOX"
+      level: "basic"
+      features: ["financial_data_protection", "audit_trails"]
+
+# Modular configuration based on context
+modules:
+  # Core AI modules - always included
+  - type: "ai-integration"
+    variant: "document_rag"
+    config:
+      embedding_model: "text-embedding-3-large"
+      chunk_size: 
+        default: 1000
+        legal: 1500  # Larger chunks for legal documents
+        medical: 800 # Smaller chunks for medical precision
+      similarity_threshold: 0.75
+      max_context_tokens: 4000
+    dependencies: ["vector_database", "file_storage", "llm_integration"]
+    
+  - type: "ai-integration" 
+    variant: "conversation_ai"
+    config:
+      model: "gpt-4-turbo"
+      max_tokens: 2000
+      temperature: 0.3  # Lower for factual document analysis
+      memory_window: 20
+      function_calling: true
+    dependencies: ["database", "caching"]
+
+  # Document processing capabilities
+  - type: "ai-integration"
+    variant: "document_processor"
+    config:
+      ocr_enabled: true
+      table_extraction: true
+      image_description: true
+      handwriting_recognition: true
+      supported_formats: ["pdf", "docx", "txt", "png", "jpg", "tiff"]
+      max_file_size: "50MB"
+      batch_processing: true
+    dependencies: ["file_storage"]
+
+  # Infrastructure modules - conditional based on scale
+  - type: "vector-database"
+    variant: "pinecone"
+    config:
+      dimensions: 3072  # for text-embedding-3-large
+      similarity_metric: "cosine"
+      namespaces: true  # for user isolation
+    conditionalLogic:
+      condition: "scale.users == 'enterprise'"
+      whenTrue:
+        variant: "pinecone_dedicated"
+        config:
+          dedicated_instance: true
+          replicas: 3
+
+  - type: "database"
+    variant: "supabase_postgres"
+    config:
+      extensions: ["pg_vector", "pg_cron"]
+      row_level_security: true
+      real_time: true
+    conditionalLogic:
+      condition: "compliance includes 'HIPAA'"
+      whenTrue:
+        config:
+          encryption_at_rest: true
+          audit_logging: "enhanced"
+          backup_retention: "7_years"
+
+  - type: "file-storage"
+    variant: "aws_s3"
+    config:
+      encryption: "AES-256"
+      versioning: true
+      lifecycle_policies: true
+    conditionalLogic:
+      condition: "compliance includes 'HIPAA'"
+      whenTrue:
+        config:
+          access_logging: true
+          mfa_delete: true
+          kms_encryption: true
+
+  - type: "authentication"
+    variant: "clerk"
+    config:
+      providers: ["google", "email"]
+      mfa: true
+      session_duration: "24h"
+    conditionalLogic:
+      condition: "user_type == 'enterprise'"
+      whenTrue:
+        config:
+          providers: ["saml", "oidc"]
+          sso_integration: true
+
+# Integration configurations
+integrations:
+  - service: "openai"
+    type: "llm-provider"
+    authentication: "api-key"
+    endpoints: ["chat/completions", "embeddings"]
+    environment: "all"
+
+  - service: "unstructured"
+    type: "document-processing"
+    authentication: "api-key"
+    configuration:
+      strategy: "hi_res"
+      ocr_languages: ["eng", "spa", "fra", "deu"]
+    environment: "all"
+
+  - service: "clerk"
+    type: "authentication"
+    authentication: "api-key"
+    configuration:
+      webhooks: ["user.created", "user.updated", "session.ended"]
+    environment: "all"
+
+  # Conditional integrations based on compliance
+  - service: "aws-kms"
+    type: "key-management"
+    authentication: "iam"
+    conditionalLogic:
+      condition: "compliance includes 'HIPAA' OR compliance includes 'SOX'"
+      whenTrue:
+        configuration:
+          key_rotation: "annual"
+          audit_logging: true
+
+# Deployment configuration
+deployment:
+  platform: "vercel"
+  regions: ["us-east-1", "eu-west-1"]
+  
+  environment:
+    - name: "production"
+      variables:
+        NODE_ENV: "production"
+        LOG_LEVEL: "warn"
+        RATE_LIMIT_ENABLED: true
+      secrets:
+        - "OPENAI_API_KEY"
+        - "PINECONE_API_KEY"
+        - "CLERK_SECRET_KEY"
+        - "UNSTRUCTURED_API_KEY"
+      
+  scaling:
+    auto: true
+    minInstances: 1
+    maxInstances: 10
+    triggers:
+      - metric: "requests"
+        threshold: 1000
+        action: "scale-up"
+
+  monitoring:
+    logging:
+      level: "info"
+      structured: true
+      retention: "30d"
+      destinations: ["vercel", "sentry"]
+    
+    metrics:
+      enabled: true
+      provider: "vercel"
+      customMetrics:
+        - "document_processing_time"
+        - "rag_query_latency"
+        - "user_satisfaction_score"
+    
+    alerts:
+      - name: "high_error_rate"
+        condition: "error_rate > 5%"
+        severity: "high"
+        channels: ["email", "slack"]
+      - name: "slow_response_time"
+        condition: "p95_latency > 5s"
+        severity: "medium"
+        channels: ["email"]
+
+  security:
+    encryption:
+      atRest: true
+      inTransit: true
+      keyManagement: "aws-kms"
+    
+    authentication:
+      providers: ["clerk"]
+      mfa: true
+      sessionManagement:
+        duration: "24h"
+        renewal: true
+        storage: "database"
+    
+    compliance:
+      standards: ["GDPR", "SOC2"]
+      auditing: true
+      reporting: true
+      retention: "7y"
+
+# Customization options
+customization:
+  ui:
+    framework: "nextjs"
+    styling: "tailwind"
+    componentLibrary: "shadcn"
+    theme:
+      primaryColor: "#3B82F6"
+      secondaryColor: "#6366F1"
+      accent: "#8B5CF6"
+      neutral: "#6B7280"
+      background: "#FFFFFF"
+      surface: "#F9FAFB"
+    responsive: true
+    accessibility:
+      level: "AA"
+      features: ["screen-reader", "keyboard-navigation", "focus-indicators"]
+      testing: true
+
+  features:
+    enabled:
+      - "document_upload"
+      - "drag_drop_interface"
+      - "bulk_processing"
+      - "chat_interface"
+      - "search_functionality"
+      - "user_accounts"
+      - "usage_analytics"
+      - "export_capabilities"
+    
+    configuration:
+      max_file_size: "50MB"
+      supported_formats: ["pdf", "docx", "txt", "png", "jpg"]
+      concurrent_uploads: 5
+      retention_period: "90d"
+      
+  branding:
+    customizable: true
+    elements: ["logo", "colors", "fonts", "messaging"]
+    whiteLabel: true
+
+# Context-driven variations
+contextual_variations:
+  legal_documents:
+    description: "Specialized for legal document analysis"
+    modifications:
+      modules:
+        - type: "ai-integration"
+          variant: "legal_document_processor"
+          config:
+            specialized_models: ["contract_analysis", "clause_extraction"]
+            legal_taxonomy: true
+            citation_extraction: true
+      compliance:
+        additional: ["attorney_client_privilege", "work_product_doctrine"]
+      features:
+        additional: ["redaction_tools", "privilege_review", "case_law_integration"]
+
+  medical_records:
+    description: "HIPAA-compliant medical document processing"
+    modifications:
+      compliance:
+        required: ["HIPAA"]
+        level: "enterprise"
+      modules:
+        - type: "ai-integration"
+          variant: "medical_document_processor"
+          config:
+            medical_terminology: true
+            phi_detection: true
+            icd_coding: true
+      security:
+        encryption: "AES-256-GCM"
+        access_controls: "role_based"
+        audit_logging: "comprehensive"
+
+  financial_analysis:
+    description: "Financial document processing with compliance"
+    modifications:
+      compliance:
+        required: ["SOX", "PCI-DSS"]
+      modules:
+        - type: "ai-integration"
+          variant: "financial_document_processor"
+          config:
+            numerical_precision: "high"
+            financial_terminology: true
+            fraud_detection: true
+      features:
+        additional: ["audit_trails", "approval_workflows", "reconciliation"]
+
+  academic_research:
+    description: "Research paper analysis and citation management"
+    modifications:
+      modules:
+        - type: "ai-integration"
+          variant: "academic_document_processor"
+          config:
+            citation_formats: ["apa", "mla", "chicago", "ieee"]
+            reference_extraction: true
+            plagiarism_detection: true
+      features:
+        additional: ["bibliography_generation", "research_collaboration", "version_control"]
+
+# Example prompts to guide users
+example_prompts:
+  - category: "Legal"
+    prompt: "Build a contract analysis platform for our law firm to review NDAs, employment agreements, and vendor contracts. We need to extract key terms, identify risks, and ensure compliance with state regulations."
+    
+  - category: "Healthcare" 
+    prompt: "Create a HIPAA-compliant system for our medical practice to analyze patient records, extract relevant medical history, and assist doctors with diagnosis support while maintaining strict privacy controls."
+    
+  - category: "Finance"
+    prompt: "Develop a financial document processor for our accounting firm to analyze tax documents, financial statements, and audit materials with SOX compliance and fraud detection capabilities."
+    
+  - category: "Education"
+    prompt: "Build an academic research assistant that can analyze research papers, extract citations, compare methodologies, and help students with literature reviews while maintaining academic integrity."
+
+# Customization questions to understand context
+customization_questions:
+  - question: "What types of documents will your users primarily upload?"
+    type: "multiple_choice"
+    options: ["Legal contracts", "Medical records", "Financial statements", "Research papers", "Technical manuals", "General business documents"]
+    impacts: ["ai_model_selection", "compliance_requirements", "processing_pipeline"]
+    
+  - question: "Who will be using this system?"
+    type: "multiple_choice" 
+    options: ["Internal employees only", "External customers", "Business partners", "General public"]
+    impacts: ["authentication_strategy", "security_level", "user_interface_complexity"]
+    
+  - question: "Do you have any compliance requirements?"
+    type: "multiple_choice"
+    options: ["HIPAA (Healthcare)", "GDPR (EU Privacy)", "SOX (Financial)", "None that I know of"]
+    impacts: ["security_configuration", "audit_logging", "data_retention"]
+    
+  - question: "What's your expected scale?"
+    type: "single_choice"
+    options: ["Small team (1-50 users)", "Medium business (50-500 users)", "Large enterprise (500+ users)"]
+    impacts: ["infrastructure_sizing", "pricing_tier", "support_level"]
+    
+  - question: "What insights do you want to extract from documents?"
+    type: "text_input"
+    placeholder: "e.g., key contract terms, medical diagnosis codes, financial ratios, research findings"
+    impacts: ["ai_prompt_engineering", "custom_extraction_models", "output_formatting"]

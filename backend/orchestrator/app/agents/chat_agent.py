@@ -89,15 +89,29 @@ You MUST respond with valid JSON in this exact format:
     }}
 }}
 
-## Readiness Score Guidelines
-- 0-30: Just started, need core problem and user understanding
-- 30-50: Have basic understanding, need feature details
-- 50-70: Have features, need data model and integration clarity
-- 70-85: Have most info, confirming final details
-- 85-100: Ready to generate spec and build
+## Readiness Score Guidelines - BE AGGRESSIVE
+- 0-30: Need to understand what they're building
+- 30-60: Have basic idea, need 1-2 more details
+- 60-80: Have enough to build something useful - CONSIDER PROCEEDING
+- 80-100: Ready to generate spec and build - PROCEED NOW
 
-Only suggest "generate_spec" when readiness_score >= 80.
-Only suggest "build_preview" if user explicitly asks to build/preview."""
+IMPORTANT: Don't be too conservative! If user has given you a clear app idea with
+even basic requirements, move readiness to 70+. After 2-3 exchanges, you should
+usually be at 80+. Users want to BUILD, not answer endless questions.
+
+## CRITICAL: Detecting User Intent to Proceed
+Watch for these PROCEED SIGNALS that mean the user wants to move forward:
+- "get started", "let's go", "start building", "build it", "ok", "yes", "proceed"
+- "sounds good", "that's it", "let's do it", "make it", "create it"
+- Simple affirmative responses when you've asked if they're ready
+
+When you detect a proceed signal AND readiness >= 40%, immediately:
+1. Set suggested_action to "generate_spec"
+2. Boost readiness_score to 85+
+3. Acknowledge you're proceeding to build
+
+DO NOT keep asking questions if the user signals they want to proceed.
+If in doubt about requirements, use sensible defaults and proceed."""
 
 
 class ChatAgent(Agent[ChatState, ChatResult]):
@@ -146,6 +160,43 @@ class ChatAgent(Agent[ChatState, ChatResult]):
 
         return "\n".join(lines)
 
+    def _is_proceed_signal(self, message: str, readiness: int) -> bool:
+        """Detect if user wants to proceed/start building."""
+        msg_lower = message.lower().strip()
+
+        # Strong proceed signals - user explicitly wants to move forward
+        strong_signals = [
+            "get started", "let's go", "start building", "build it",
+            "proceed", "make it", "create it", "let's do it",
+            "just build", "go ahead", "start please", "begin",
+            "ok build", "yes build", "do it", "ship it",
+            "build this", "build that", "build now", "ready to build",
+            "let's build", "start now", "generate", "create",
+            "i want to build", "build please", "can you build",
+        ]
+
+        # Weak proceed signals - affirmative responses
+        weak_signals = [
+            "ok", "yes", "sure", "yep", "yeah", "sounds good", "that's it", "perfect",
+            "that works", "good", "great", "fine", "cool", "nice", "alright",
+            "exactly", "correct", "right", "yup", "uh huh",
+        ]
+
+        # Check for strong signals (any readiness level)
+        for signal in strong_signals:
+            if signal in msg_lower:
+                return True
+
+        # Check for weak signals (only if readiness >= 40%)
+        if readiness >= 40:
+            # Short affirmative responses
+            if msg_lower in weak_signals or len(msg_lower) < 15:
+                for signal in weak_signals:
+                    if signal in msg_lower:
+                        return True
+
+        return False
+
     async def run(
         self,
         state: ChatState,
@@ -161,6 +212,9 @@ class ChatAgent(Agent[ChatState, ChatResult]):
                 success=False,
                 error="No user message provided"
             )
+
+        # Check for proceed signal BEFORE calling AI
+        is_proceed = self._is_proceed_signal(user_message, state.readiness_score)
 
         # Add user message to history
         state.history.append(ChatMessage(role="user", content=user_message))
@@ -191,6 +245,14 @@ Respond with JSON as specified in your instructions."""
             readiness = response.get("readiness_score", state.readiness_score)
             suggested_action = response.get("suggested_action", "continue_chat")
             requirements = response.get("requirements", {})
+
+            # OVERRIDE: If user signaled proceed, force spec generation
+            # Be aggressive - if user says "get started", proceed with what we have
+            if is_proceed and len(state.history) >= 2:  # At least one prior exchange
+                suggested_action = "generate_spec"
+                readiness = max(readiness, 85)
+                assistant_message = "Let me start building that for you now."
+                followups = []  # Clear follow-ups since we're proceeding
 
             # Update state
             state.history.append(ChatMessage(role="assistant", content=assistant_message))

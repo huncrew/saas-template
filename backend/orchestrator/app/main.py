@@ -5,8 +5,10 @@ import os
 import json
 import threading
 import time
+import difflib
 from pathlib import Path
 from typing import Optional
+import re
 from urllib import request as urlrequest
 from urllib.error import HTTPError, URLError
 from io import BytesIO
@@ -14,6 +16,7 @@ import zipfile
 
 from fastapi import BackgroundTasks, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 import yaml
 
@@ -65,6 +68,7 @@ def _require_user(user_id: Optional[str]) -> str:
 
 def _simulate_build(repo, user_id: str, build_id: str) -> None:
     # V1 local behavior: simulate a short running build and fill minimal artifacts
+    # When agents are enabled, actually generate code
     b = repo.get_build(user_id, build_id)
     if not b:
         return
@@ -72,7 +76,39 @@ def _simulate_build(repo, user_id: str, build_id: str) -> None:
     b.started_at = now_iso()
     repo.update_build(user_id, b)
 
-    time.sleep(2.5 if b.type == "preview" else 3.5)
+    generated_files = []
+    patch_diff = ""
+
+    # Try agent-based code generation for local dev
+    if _use_agents() and b.type == "preview":
+        try:
+            project = repo.get_project(user_id, b.project_id)
+            if project and project.spec_yaml:
+                from app.agents.integration import generate_code_with_agents, run_async
+
+                gen_result = run_async(generate_code_with_agents(
+                    project_id=b.project_id,
+                    project_name=project.name,
+                    template_id=project.template_id,
+                    spec_yaml=project.spec_yaml,
+                    user_id=user_id,
+                    skeleton_manifest=[],
+                    templates_dir=TEMPLATES_DIR,
+                    modules_dir=MODULES_DIR,
+                ))
+
+                if gen_result.get("success"):
+                    generated_files = gen_result.get("files", [])
+                    patch_diff = gen_result.get("patch_diff", "")
+                else:
+                    print(f"[SIMULATE_BUILD] Agent code gen failed: {gen_result.get('error')}")
+        except Exception as e:
+            print(f"[SIMULATE_BUILD] Agent code gen error: {e}")
+            import traceback
+            traceback.print_exc()
+    else:
+        # Just simulate delay without code gen
+        time.sleep(2.5 if b.type == "preview" else 3.5)
 
     b = repo.get_build(user_id, build_id)
     if not b:
@@ -82,7 +118,18 @@ def _simulate_build(repo, user_id: str, build_id: str) -> None:
     if b.type == "preview":
         # Placeholder URL – in AWS this will be CloudFront /p/{project}/{build}/
         b.artifacts.preview_url = f"http://localhost:3000/p/{b.project_id}/{b.build_id}/"
+
+    # Store generated files in a module-level cache for the preview endpoint to access
+    if generated_files or patch_diff:
+        _BUILD_FILES_CACHE[build_id] = {
+            "files": generated_files,
+            "patch_diff": patch_diff,
+        }
+
     repo.update_build(user_id, b)
+
+# Cache for generated files (for local preview)
+_BUILD_FILES_CACHE: dict[str, dict] = {}
 
 def _preview_base_url() -> str:
     # e.g. https://d123.cloudfront.net
@@ -288,6 +335,84 @@ def _template_manifest(bucket: str, key: str) -> list[str]:
     return names
 
 
+def _template_file_text(bucket: str, key: str, suffix_path: str) -> str:
+    """
+    Load a single text file from the template zip in S3 by suffix match.
+    This allows templates to be zipped with a top-level folder.
+    """
+    if not boto3:
+        raise RuntimeError("boto3 not available")
+    s3 = boto3.client("s3")
+    obj = s3.get_object(Bucket=bucket, Key=key)
+    data = obj["Body"].read()
+    z = zipfile.ZipFile(BytesIO(data))
+    suffix = suffix_path.lstrip("/")
+    matches = [n for n in z.namelist() if n.endswith(suffix)]
+    if not matches:
+        raise FileNotFoundError(f"Template file not found: *{suffix}")
+    name = sorted(matches, key=len)[0]
+    raw = z.read(name)
+    return raw.decode("utf-8")
+
+
+def _unified_diff(a_path: str, a_text: str, b_path: str, b_text: str) -> str:
+    a_lines = (a_text or "").splitlines(keepends=True)
+    b_lines = (b_text or "").splitlines(keepends=True)
+    diff = difflib.unified_diff(
+        a_lines,
+        b_lines,
+        fromfile=f"a/{a_path}",
+        tofile=f"b/{b_path}",
+        lineterm="\n",
+    )
+    return "".join(diff)
+
+
+def _todo_smoke_files_prompt(project: Project, current_dashboard_tsx: str) -> str:
+    """
+    For smoke tests, ask the model for full file contents (not a diff) so we can
+    generate a correct unified diff ourselves.
+    """
+    return (
+        "Return ONLY valid JSON (no markdown fences).\n"
+        "Generate the full contents for this file:\n"
+        "- frontend/src/app/dashboard/page.tsx\n\n"
+        "Constraints:\n"
+        "- Client-side only.\n"
+        "- The file MUST start with the directive: \"use client\";\n"
+        "- Implement: todos list, add todo, toggle complete, delete, empty state.\n"
+        "- Keep imports consistent with the template (prefer @/components/ui/*).\n"
+        "- Do NOT invent @/components barrel imports.\n"
+        "- Keep the file syntactically valid (all braces closed).\n\n"
+        "CURRENT FILE (edit this; keep structure as much as possible):\n"
+        + current_dashboard_tsx
+        + "\n\n"
+        "JSON format:\n"
+        '{\"files\":[{\"path\":\"frontend/src/app/dashboard/page.tsx\",\"content\":\"...\"}]}\n\n'
+        + "SPEC (YAML):\n"
+        + ((project.spec_yaml or "").strip() + "\n")
+    )
+
+
+def _sanitize_client_directive(tsx: str) -> str:
+    """
+    Ensure the dashboard file is a valid Next.js client component.
+    Models sometimes emit a stray `use client;` line without quotes (invalid TSX).
+    """
+    if not tsx:
+        return tsx
+    lines = tsx.splitlines()
+    cleaned: list[str] = []
+    for ln in lines:
+        if ln.strip() in {"use client;", "use client"}:
+            continue
+        cleaned.append(ln)
+    out = "\n".join(cleaned).lstrip()
+    if not out.startswith('"use client"') and not out.startswith("'use client'"):
+        out = '"use client";\n\n' + out
+    return out
+
+
 def _extract_patch(text: str) -> str:
     """
     Extract a git-apply compatible diff from model output.
@@ -324,13 +449,47 @@ def _normalize_patch_paths(patch_text: str) -> str:
     t = (patch_text or "").strip("\n")
     if not t:
         return ""
-    # Collapse duplicate git prefixes.
+    # Collapse duplicate git prefixes (common LLM mistake).
     for _ in range(2):
         t = t.replace("diff --git a/a/", "diff --git a/")
         t = t.replace("diff --git b/b/", "diff --git b/")
+        t = t.replace(" a/a/", " a/")
+        t = t.replace(" b/b/", " b/")
         t = t.replace("--- a/a/", "--- a/")
         t = t.replace("+++ b/b/", "+++ b/")
     return t + "\n"
+
+
+def _sanitize_patch(patch_text: str) -> str:
+    """
+    Final cleanup of model diffs to increase `git apply` success.
+    - Normalizes duplicate a/a and b/b prefixes
+    - Fixes a common model failure mode where a new `diff --git ...` header is
+      accidentally emitted as a hunk line (prefixed with '+').
+    """
+    t = _normalize_patch_paths(patch_text)
+    if not t:
+        return ""
+    out_lines: list[str] = []
+    for line in t.splitlines():
+        if line.startswith("+diff --git "):
+            out_lines.append(line[1:])
+            continue
+        if line.startswith("+index ") and out_lines and out_lines[-1].startswith("diff --git "):
+            out_lines.append(line[1:])
+            continue
+        if line.startswith("+--- ") and out_lines and out_lines[-1].startswith("index "):
+            out_lines.append(line[1:])
+            continue
+        if line.startswith("++++ ") and out_lines and out_lines[-1].startswith("--- "):
+            # extremely rare, but keep symmetry
+            out_lines.append(line[1:])
+            continue
+        if line.startswith("+++ ") and out_lines and out_lines[-1].startswith("--- "):
+            out_lines.append(line)
+            continue
+        out_lines.append(line)
+    return "\n".join(out_lines).rstrip("\n") + "\n"
 
 
 def _patch_prompt(project: Project) -> str:
@@ -359,17 +518,32 @@ def _patch_prompt(project: Project) -> str:
 
     spec_yaml = (project.spec_yaml or "").strip()
     spec = spec_yaml if spec_yaml else (project.spec_markdown or "").strip()
+    is_todo_smoke = False
+    if spec_yaml:
+        low = spec_yaml.lower()
+        is_todo_smoke = ("no-modules smoke test" in low) or ("\n- name: todo" in low) or ("name: todo" in low)
     return (
         "You are an expert code generator.\n"
         "Generate a git-apply compatible unified diff patch to implement the spec.\n"
         "Constraints:\n"
         "- Output ONLY the diff (no markdown fences, no commentary).\n"
+        "- Output must be a valid unified diff starting with 'diff --git ...'.\n"
+        "- Do NOT emit a new 'diff --git' header inside a hunk (never prefix it with '+').\n"
         "- The repo root is a template zip with frontend/ (Next.js 15 static export) and backend/ (python lambdas).\n"
         "- IMPORTANT: Only modify/add files that exist in the template manifest, or add new files under existing directories.\n"
         "- Use paths like a/frontend/... b/frontend/... (relative to repo root).\n"
         "- Keep changes minimal and focused.\n"
-        "- Prefer adding new files over huge edits.\n\n"
-        "Implementation guidance:\n"
+        "- Prefer small edits to existing files over introducing new files/dependencies.\n\n"
+        + (
+            "SMOKE TEST MODE (Todo, no modules):\n"
+            "- ONLY modify frontend/src/app/dashboard/page.tsx\n"
+            "- Keep it client-side only; do NOT add backend code.\n"
+            "- Do NOT create new files or edit types; inline any small types in the file.\n"
+            "- Ensure the resulting TSX file is syntactically valid (all braces closed).\n\n"
+            if is_todo_smoke
+            else ""
+        )
+        + "Implementation guidance:\n"
         "- Frontend should call the API Gateway base URL via NEXT_PUBLIC_API_BASE_URL.\n"
         "- Do NOT add Next.js API routes (frontend/src/app/api/*) or middleware.\n"
         "- If backend changes are required, modify backend/lambdas/api/* handlers and shared code under backend/lambdas/common/.\n"
@@ -402,7 +576,7 @@ def _ai_generate(user_id: str, prompt: str) -> str:
         "prompt": prompt,
         # Leave model unspecified so the backend uses its configured default (SSM-driven).
         "temperature": 0.2,
-        "maxTokens": 1800,
+        "maxTokens": 8000,
     }
     data = json.dumps(payload).encode("utf-8")
     req = urlrequest.Request(
@@ -596,6 +770,21 @@ def get_project(project_id: str, x_user_id: Optional[str] = Header(default=None)
     return p
 
 
+@app.get("/v1/projects/{project_id}/chat-history")
+def get_chat_history(
+    project_id: str,
+    limit: int = 50,
+    x_user_id: Optional[str] = Header(default=None),
+) -> dict:
+    user_id = _require_user(x_user_id)
+    repo = get_repo()
+    p = repo.get_project(user_id, project_id)
+    if not p:
+        raise HTTPException(status_code=404, detail="Not found")
+    msgs = repo.list_chat_messages(user_id, project_id, limit=limit)
+    return {"project_id": project_id, "messages": msgs}
+
+
 @app.post("/v1/projects/{project_id}/chat", response_model=ProjectChatResponse)
 def project_chat(
     project_id: str,
@@ -615,17 +804,49 @@ def project_chat(
         raise HTTPException(status_code=404, detail="Not found")
 
     msg = (payload.message or "").strip()
+    # Persisted chat context is required for reliable AI builds.
+    persisted = repo.list_chat_messages(user_id, project_id, limit=50) or []
     history = payload.history or []
+    lower = msg.lower()
+    print(f"[CHAT DEBUG] Received payload: message={msg[:30]}, auto_preview={payload.auto_preview}, history_type={type(payload.history)}, history_len={len(history)}")
+    wants_no_modules = any(k in lower for k in ["no modules", "without modules", "no module", "without module"])
+
+    def _redact(text: str) -> str:
+        t = text or ""
+        # best-effort: common secret formats
+        t = re.sub(r"sk-[A-Za-z0-9_\\-]{20,}", "[REDACTED_OPENAI_KEY]", t)
+        t = re.sub(r"sk_live_[A-Za-z0-9]{20,}", "[REDACTED_CLERK_SECRET]", t)
+        t = re.sub(r"AKIA[0-9A-Z]{16}", "[REDACTED_AWS_ACCESS_KEY]", t)
+        return t
+
+    msg_redacted = _redact(msg)
+    # Store the user message immediately (durable context).
+    try:
+        repo.append_chat_message(user_id, project_id, "user", msg_redacted)
+    except Exception as exc:
+        print(f"[CHAT] failed to persist user message: {exc}")
+
+    # Merge persisted context + request-provided history for AI calls.
+    merged_history: list[ChatMessage] = []
+    for m in persisted:
+        try:
+            merged_history.append(ChatMessage(role=m.get("role"), content=m.get("content", "")))
+        except Exception:
+            continue
+    merged_history.extend(history)
 
     # Use agent-based chat when enabled
-    if _use_agents() and _backend_api_url():
+    print(f"[CHAT] use_agents={_use_agents()}, has_backend={bool(_backend_api_url())}, msg={msg[:50]}, history_len={len(history)}")
+    # For quick smoke tests, bypass agents so we can deterministically control the manifest.
+    if _use_agents() and _backend_api_url() and not wants_no_modules:
         try:
+            print(f"[CHAT] Calling agent...")
             result = run_async(process_chat_with_agents(
                 project_id=project_id,
                 project_name=p.name,
                 template_id=p.template_id,
-                message=msg,
-                history=[{"role": h.role, "content": h.content} for h in history],
+                message=msg_redacted,
+                history=[{"role": h.role, "content": h.content} for h in merged_history],
                 user_id=user_id,
                 auto_preview=payload.auto_preview,
                 templates_dir=TEMPLATES_DIR,
@@ -638,6 +859,16 @@ def project_chat(
                 p.spec_markdown = result.get("spec_markdown")
                 p.spec_updated_at = now_iso()
                 repo.put_project(user_id, p)
+
+            # Persist assistant message for durable context.
+            try:
+                assistant_obj = result.get("assistant") or {}
+                assistant_text = (
+                    assistant_obj.get("content", "") if isinstance(assistant_obj, dict) else ""
+                )
+                repo.append_chat_message(user_id, project_id, "assistant", _redact(assistant_text or "Ok."))
+            except Exception as exc:
+                print(f"[CHAT] failed to persist assistant message (agents path): {exc}")
 
             return ProjectChatResponse(
                 assistant=result["assistant"],
@@ -652,10 +883,8 @@ def project_chat(
             pass
 
     # Legacy implementation below
-    lower = msg.lower()
     wants_build = any(k in lower for k in ["build preview", "preview", "deploy", "ship", "run build"])
     detected_modules = _detect_modules_from_text(msg)
-    wants_no_modules = any(k in lower for k in ["no modules", "without modules", "no module", "without module"])
 
     # Default deterministic fallbacks if backend AI isn't configured.
     followups: list[str] = []
@@ -666,7 +895,7 @@ def project_chat(
 
     if _backend_api_url():
         try:
-            raw = _ai_generate(user_id, _spec_prompt(p, msg, history))
+            raw = _ai_generate(user_id, _spec_prompt(p, msg_redacted, merged_history))
             parsed = _extract_json(raw) or {}
             
             # Extract conversational response
@@ -684,7 +913,7 @@ def project_chat(
                 spec_md = _spec_markdown_from_yaml(spec_yaml)
 
             # Deterministic no-modules spec for quick smoke tests (avoids generic fallback).
-            if wants_no_modules and not spec_yaml:
+            if wants_no_modules and ("todo" in lower or "to-do" in lower or "todos" in lower):
                 spec_yaml = yaml.safe_dump(
                     {
                         "base_template": p.template_id,
@@ -877,34 +1106,197 @@ def build_preview(
         b.artifacts.checks_report_url = f"{preview_base}/p/{b.project_id}/{b.build_id}/report/index.html"
         repo.update_build(user_id, b)
 
-    # If we have a spec, generate a patch and upload spec+patch to S3 for CodeBuild to consume.
+    # If we have a spec, generate code and upload to S3 for CodeBuild to consume.
     patch_key: str = ""
+    files_manifest_key: str = ""  # Option A: direct file writes
     module_patch_keys: list[str] = []
-    if cb_project and _backend_api_url() and project and _artifacts_bucket():
+    bucket = _artifacts_bucket()
+
+    if cb_project and _backend_api_url() and project and bucket:
         try:
-            bucket = _artifacts_bucket()
             spec_md_key = f"projects/{project_id}/builds/{b.build_id}/spec.md"
             spec_yaml_key = f"projects/{project_id}/builds/{b.build_id}/spec.yaml"
             patch_key = f"projects/{project_id}/builds/{b.build_id}/patch.diff"
+
             if project.spec_markdown:
                 _s3_put_text(bucket, spec_md_key, project.spec_markdown, "text/markdown; charset=utf-8")
             if project.spec_yaml:
                 _s3_put_text(bucket, spec_yaml_key, project.spec_yaml, "text/yaml; charset=utf-8")
 
-            # Deterministic module composition: upload module patch diffs if selected in spec_yaml.
-            module_patch_keys = _module_patch_keys_for_build(project, project_id, b.build_id, bucket)
+            spec_yaml_lower = (project.spec_yaml or "").strip().lower()
+            is_todo_smoke = ("no-modules smoke test" in spec_yaml_lower) and ("name: todo" in spec_yaml_lower)
 
-            patch_raw = _ai_generate(user_id, _patch_prompt(project))
-            patch = _normalize_patch_paths(_extract_patch(patch_raw))
-            if patch:
-                _s3_put_text(bucket, patch_key, patch, "text/plain; charset=utf-8")
-                if b.artifacts:
-                    b.artifacts.changes_url = f"s3://{bucket}/{patch_key}"
-                repo.update_build(user_id, b)
+            # Use agent-based code generation when enabled (flexible, validated)
+            if _use_agents() and project.spec_yaml and not is_todo_smoke:
+                try:
+                    # Get template manifest for context
+                    skeleton_manifest: list[str] = []
+                    template_key = _factory_template_key()
+                    if template_key:
+                        try:
+                            skeleton_manifest = _template_manifest(bucket, template_key)
+                        except Exception:
+                            pass
+
+                    # Generate code with agents (includes validation retry loop)
+                    gen_result = run_async(generate_code_with_agents(
+                        project_id=project_id,
+                        project_name=project.name,
+                        template_id=project.template_id,
+                        spec_yaml=project.spec_yaml,
+                        user_id=user_id,
+                        skeleton_manifest=skeleton_manifest,
+                        templates_dir=TEMPLATES_DIR,
+                        modules_dir=MODULES_DIR,
+                    ))
+
+                    if gen_result.get("success") and gen_result.get("patch_diff"):
+                        patch = gen_result["patch_diff"]
+                        _s3_put_text(bucket, patch_key, patch, "text/plain; charset=utf-8")
+
+                        # Upload files manifest (Option A: direct file writes)
+                        files_manifest = [
+                            {"path": fc["path"], "content": fc["content"]}
+                            for fc in gen_result.get("files", [])
+                        ]
+                        files_manifest_key = f"projects/{project_id}/builds/{b.build_id}/files.json"
+                        _s3_put_text(bucket, files_manifest_key, json.dumps(files_manifest), "application/json")
+
+                        # Also upload individual files for debugging/inspection
+                        for fc in gen_result.get("files", []):
+                            file_key = f"projects/{project_id}/builds/{b.build_id}/files/{fc['path']}"
+                            _s3_put_text(bucket, file_key, fc["content"], "text/plain; charset=utf-8")
+
+                        # Upload security findings report
+                        security_findings = gen_result.get("security_findings", [])
+                        security_passed = gen_result.get("security_passed", True)
+                        security_report = {
+                            "passed": security_passed,
+                            "findings": security_findings,
+                            "summary": f"{'No critical/high issues' if security_passed else 'Security issues found'} - {len(security_findings)} total findings",
+                        }
+                        security_key = f"projects/{project_id}/builds/{b.build_id}/security.json"
+                        _s3_put_text(bucket, security_key, json.dumps(security_report, indent=2), "application/json")
+
+                        if b.artifacts:
+                            b.artifacts.changes_url = f"s3://{bucket}/{patch_key}"
+                        repo.update_build(user_id, b)
+                    else:
+                        # Agent generation failed, fall through to legacy
+                        raise RuntimeError(gen_result.get("error", "Agent code generation failed"))
+
+                except Exception as agent_exc:
+                    # Fall back to legacy patch generation
+                    import traceback
+                    traceback.print_exc()
+                    print(f"Agent code gen failed, falling back to legacy: {agent_exc}")
+
+                    # Legacy: deterministic module patches
+                    module_patch_keys = _module_patch_keys_for_build(project, project_id, b.build_id, bucket)
+
+                    spec_yaml = (project.spec_yaml or "").strip().lower()
+                    is_todo_smoke = ("no-modules smoke test" in spec_yaml) and ("name: todo" in spec_yaml)
+                    if is_todo_smoke:
+                        template_key = _factory_template_key() or "templates/base-skeleton.zip"
+                        old_text = _template_file_text(bucket, template_key, "frontend/src/app/dashboard/page.tsx")
+                        raw = _ai_generate(user_id, _todo_smoke_files_prompt(project, old_text))
+                        parsed = _extract_json(raw) or {}
+                        files = parsed.get("files") or []
+                        new_text = ""
+                        if isinstance(files, list):
+                            for f in files:
+                                if isinstance(f, dict) and f.get("path") == "frontend/src/app/dashboard/page.tsx":
+                                    new_text = f.get("content") or ""
+                                    break
+                        new_text = _sanitize_client_directive(new_text or "")
+
+                        # Option A: upload a files manifest so CodeBuild writes files directly (more reliable than diffs).
+                        files_manifest_key = f"projects/{project_id}/builds/{b.build_id}/files.json"
+                        _s3_put_text(
+                            bucket,
+                            files_manifest_key,
+                            json.dumps([{"path": "frontend/src/app/dashboard/page.tsx", "content": new_text}]),
+                            "application/json",
+                        )
+                        _s3_put_text(
+                            bucket,
+                            f"projects/{project_id}/builds/{b.build_id}/files/frontend/src/app/dashboard/page.tsx",
+                            new_text,
+                            "text/plain; charset=utf-8",
+                        )
+
+                        patch = _unified_diff(
+                            "frontend/src/app/dashboard/page.tsx",
+                            old_text,
+                            "frontend/src/app/dashboard/page.tsx",
+                            new_text,
+                        )
+                    else:
+                        patch_raw = _ai_generate(user_id, _patch_prompt(project))
+                        patch = _sanitize_patch(_extract_patch(patch_raw))
+                    if patch:
+                        _s3_put_text(bucket, patch_key, patch, "text/plain; charset=utf-8")
+                        if b.artifacts:
+                            b.artifacts.changes_url = f"s3://{bucket}/{patch_key}"
+                        repo.update_build(user_id, b)
+                    else:
+                        patch_key = ""
             else:
-                patch_key = ""
+                # Legacy approach: monolithic patch generation
+                module_patch_keys = _module_patch_keys_for_build(project, project_id, b.build_id, bucket)
+
+                spec_yaml = (project.spec_yaml or "").strip().lower()
+                is_todo_smoke = ("no-modules smoke test" in spec_yaml) and ("name: todo" in spec_yaml)
+                if is_todo_smoke:
+                    template_key = _factory_template_key() or "templates/base-skeleton.zip"
+                    old_text = _template_file_text(bucket, template_key, "frontend/src/app/dashboard/page.tsx")
+                    raw = _ai_generate(user_id, _todo_smoke_files_prompt(project, old_text))
+                    parsed = _extract_json(raw) or {}
+                    files = parsed.get("files") or []
+                    new_text = ""
+                    if isinstance(files, list):
+                        for f in files:
+                            if isinstance(f, dict) and f.get("path") == "frontend/src/app/dashboard/page.tsx":
+                                new_text = f.get("content") or ""
+                                break
+                    new_text = _sanitize_client_directive(new_text or "")
+
+                    # Option A: upload a files manifest so CodeBuild writes files directly (more reliable than diffs).
+                    files_manifest_key = f"projects/{project_id}/builds/{b.build_id}/files.json"
+                    _s3_put_text(
+                        bucket,
+                        files_manifest_key,
+                        json.dumps([{"path": "frontend/src/app/dashboard/page.tsx", "content": new_text}]),
+                        "application/json",
+                    )
+                    _s3_put_text(
+                        bucket,
+                        f"projects/{project_id}/builds/{b.build_id}/files/frontend/src/app/dashboard/page.tsx",
+                        new_text,
+                        "text/plain; charset=utf-8",
+                    )
+
+                    patch = _unified_diff(
+                        "frontend/src/app/dashboard/page.tsx",
+                        old_text,
+                        "frontend/src/app/dashboard/page.tsx",
+                        new_text,
+                    )
+                else:
+                    patch_raw = _ai_generate(user_id, _patch_prompt(project))
+                    patch = _sanitize_patch(_extract_patch(patch_raw))
+                if patch:
+                    _s3_put_text(bucket, patch_key, patch, "text/plain; charset=utf-8")
+                    if b.artifacts:
+                        b.artifacts.changes_url = f"s3://{bucket}/{patch_key}"
+                    repo.update_build(user_id, b)
+                else:
+                    patch_key = ""
+
         except Exception as exc:  # pylint: disable=broad-except
             # Don't fail the build creation; just omit patch and proceed with template build.
+            import traceback
+            traceback.print_exc()
             if b.artifacts:
                 b.artifacts.changes_url = f"patch_generation_failed: {exc}"
             repo.update_build(user_id, b)
@@ -920,6 +1312,7 @@ def build_preview(
                 overrides={
                     **({"TEMPLATE_KEY": template_key} if template_key else {}),
                     **({"PATCH_KEY": patch_key} if patch_key else {}),
+                    **({"FILES_MANIFEST_KEY": files_manifest_key} if files_manifest_key else {}),
                     **(
                         {"MODULE_PATCH_KEYS": ",".join(module_patch_keys)}
                         if module_patch_keys
@@ -989,6 +1382,59 @@ def get_build(build_id: str, x_user_id: Optional[str] = Header(default=None)) ->
         b = _refresh_codebuild_status(b)
         repo.update_build(user_id, b)
     return b
+
+
+@app.get("/v1/builds/{build_id}/files")
+def get_build_files(build_id: str, x_user_id: Optional[str] = Header(default=None)) -> dict:
+    """
+    Get generated files for a build (for local preview).
+    Returns files from in-memory cache or fetches from S3.
+    """
+    _require_user(x_user_id)
+
+    # Check local cache first
+    if build_id in _BUILD_FILES_CACHE:
+        return _BUILD_FILES_CACHE[build_id]
+
+    # Try to fetch from S3 if we have bucket configured
+    bucket = _artifacts_bucket()
+    if bucket:
+        try:
+            # List files in the build's files directory
+            import boto3
+            s3 = boto3.client("s3")
+            prefix = f"projects/"
+
+            # Find the project for this build
+            # We need to search since we don't have project_id here
+            response = s3.list_objects_v2(
+                Bucket=bucket,
+                Prefix=prefix,
+                MaxKeys=1000
+            )
+
+            files = []
+            patch_diff = ""
+
+            for obj in response.get("Contents", []):
+                key = obj["Key"]
+                if build_id in key:
+                    if key.endswith("patch.diff"):
+                        resp = s3.get_object(Bucket=bucket, Key=key)
+                        patch_diff = resp["Body"].read().decode("utf-8")
+                    elif "/files/" in key:
+                        resp = s3.get_object(Bucket=bucket, Key=key)
+                        content = resp["Body"].read().decode("utf-8")
+                        path = key.split("/files/")[-1]
+                        files.append({"path": path, "content": content})
+
+            if files or patch_diff:
+                return {"files": files, "patch_diff": patch_diff}
+
+        except Exception as e:
+            print(f"[BUILD_FILES] Error fetching from S3: {e}")
+
+    raise HTTPException(status_code=404, detail="No generated files found for this build")
 
 
 class CodeGenRequest(BaseModel):
@@ -1064,6 +1510,12 @@ def generate_code(
         except Exception:
             pass
 
+    # Persist assistant message so future calls have context even if the client doesn't send history.
+    try:
+        repo.append_chat_message(user_id, project_id, "assistant", _redact(assistant_content or "Ok."))
+    except Exception as exc:
+        print(f"[CHAT] failed to persist assistant message: {exc}")
+
     try:
         result = run_async(generate_code_with_agents(
             project_id=project_id,
@@ -1105,15 +1557,18 @@ def generate_code(
                     spec_key = f"projects/{project_id}/builds/{build_id}/spec.yaml"
                     _s3_put_text(bucket, spec_key, project.spec_yaml, "text/yaml; charset=utf-8")
 
-                # Upload individual files as well for debugging
-                files_manifest = []
+                # Upload files manifest (Option A: direct file writes)
+                files_manifest = [
+                    {"path": fc["path"], "content": fc["content"]}
+                    for fc in result.get("files", [])
+                ]
+                manifest_key = f"projects/{project_id}/builds/{build_id}/files.json"
+                _s3_put_text(bucket, manifest_key, json.dumps(files_manifest), "application/json")
+
+                # Also upload individual files for debugging/inspection
                 for fc in result.get("files", []):
                     file_key = f"projects/{project_id}/builds/{build_id}/files/{fc['path']}"
                     _s3_put_text(bucket, file_key, fc["content"], "text/plain; charset=utf-8")
-                    files_manifest.append(fc["path"])
-
-                manifest_key = f"projects/{project_id}/builds/{build_id}/files/manifest.json"
-                _s3_put_text(bucket, manifest_key, json.dumps(files_manifest), "application/json")
 
                 if b.artifacts:
                     b.artifacts.changes_url = f"s3://{bucket}/{patch_key}"
@@ -1155,9 +1610,445 @@ def generate_code(
         )
 
 
+class AnalyzeBuildRequest(BaseModel):
+    """Request for autonomous build analysis."""
+    build_id: str = Field(description="Build ID to analyze")
+    project_id: str = Field(description="Project ID")
+    success: bool = Field(default=False, description="Whether the build succeeded")
+    validation_passed: bool = Field(default=False, description="Whether validation passed")
+    security_passed: bool = Field(default=True, description="Whether security checks passed")
+    validation_errors: list[dict] = Field(default_factory=list)
+    security_findings: list[dict] = Field(default_factory=list)
+    attempt_count: int = Field(default=1, ge=1)
+
+
+class AnalyzeBuildResponse(BaseModel):
+    """Response from autonomous build analysis."""
+    success: bool
+    error_patterns: list[str] = Field(default_factory=list)
+    security_issues: dict = Field(default_factory=dict)
+    improvements: list[dict] = Field(default_factory=list)
+    should_retry: bool = False
+    retry_strategy: Optional[str] = None
+    metrics: dict = Field(default_factory=dict)
+
+
+# Global learning state cache (in production, use Redis/DynamoDB)
+_LEARNING_STATE_CACHE: dict = {}
+
+
+@app.post("/v1/builds/{build_id}/analyze", response_model=AnalyzeBuildResponse)
+def analyze_build(
+    build_id: str,
+    payload: AnalyzeBuildRequest,
+    x_user_id: Optional[str] = Header(default=None),
+) -> AnalyzeBuildResponse:
+    """
+    Analyze a build using the autonomous agent.
+
+    This endpoint:
+    1. Analyzes build results to identify patterns
+    2. Suggests improvements for future builds
+    3. Determines if a retry with improved strategy would help
+    4. Updates learning state for continuous improvement
+    """
+    _require_user(x_user_id)
+
+    from app.agents.autonomous_agent import analyze_and_improve
+
+    # Get previous learning state
+    learning_state = _LEARNING_STATE_CACHE.get("global", None)
+
+    result = analyze_and_improve(
+        build_result={
+            "build_id": build_id,
+            "project_id": payload.project_id,
+            "success": payload.success,
+            "validation_passed": payload.validation_passed,
+            "security_passed": payload.security_passed,
+            "validation_errors": payload.validation_errors,
+            "security_findings": payload.security_findings,
+            "attempt_count": payload.attempt_count,
+        },
+        learning_state=learning_state,
+    )
+
+    if result.get("success"):
+        # Update global learning state
+        _LEARNING_STATE_CACHE["global"] = result.get("learning_state", {})
+
+        analysis = result.get("analysis", {})
+        return AnalyzeBuildResponse(
+            success=True,
+            error_patterns=analysis.get("error_patterns", []),
+            security_issues=analysis.get("security_findings_by_category", {}),
+            improvements=result.get("improvements", []),
+            should_retry=result.get("should_retry", False),
+            retry_strategy=result.get("retry_strategy"),
+            metrics=result.get("metrics", {}),
+        )
+    else:
+        return AnalyzeBuildResponse(
+            success=False,
+            improvements=[{"error": result.get("error", "Analysis failed")}],
+        )
+
+
+@app.get("/v1/learning/metrics")
+def get_learning_metrics(x_user_id: Optional[str] = Header(default=None)) -> dict:
+    """
+    Get current learning metrics from the autonomous agent.
+    """
+    _require_user(x_user_id)
+
+    learning_state = _LEARNING_STATE_CACHE.get("global", {})
+    return {
+        "metrics": learning_state.get("metrics", {}),
+        "common_errors": learning_state.get("error_patterns_seen", {}),
+        "successful_patterns": learning_state.get("successful_patterns", []),
+        "improvement_suggestions_count": len(learning_state.get("improvement_suggestions", [])),
+    }
+
+
 @app.get("/health")
 def health() -> dict:
-    return {"ok": True, "version": "0.2", "agents_enabled": _use_agents()}
+    return {"ok": True, "version": "0.4", "agents_enabled": _use_agents(), "autonomous_learning": True, "sse_builds": True}
+
+
+# SSE Streaming Build Endpoint
+@app.post("/v1/projects/{project_id}/build-autonomous")
+async def build_autonomous_stream(
+    project_id: str,
+    x_user_id: Optional[str] = Header(default=None),
+):
+    """
+    Start an autonomous build with SSE streaming progress.
+
+    This endpoint:
+    1. Attempts to generate code with automatic retry on failures
+    2. Analyzes errors and applies improvements between attempts
+    3. Streams real-time progress updates via Server-Sent Events
+    4. Returns final build result after success or max retries
+
+    Returns SSE stream with progress events.
+    """
+    user_id = _require_user(x_user_id)
+    repo = get_repo()
+
+    project = repo.get_project(user_id, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    from app.agents.autonomous_controller import run_autonomous_build_with_sse
+    from app.agents.integration import generate_code_with_agents, process_chat_with_agents
+
+    # Generate spec if missing - don't block on this
+    if not project.spec_yaml:
+        try:
+            # Generate a minimal spec from project context
+            spec_result = run_async(process_chat_with_agents(
+                project_id=project_id,
+                project_name=project.name,
+                template_id=project.template_id,
+                message="Generate a complete spec for this project and proceed to build.",
+                history=[{"role": "user", "content": f"I want to build: {project.name}"}],
+                user_id=user_id,
+                auto_preview=True,
+                templates_dir=TEMPLATES_DIR,
+                modules_dir=MODULES_DIR,
+            ))
+            if spec_result.get("spec_yaml"):
+                project.spec_yaml = spec_result["spec_yaml"]
+                project.spec_markdown = spec_result.get("spec_markdown")
+                project.spec_updated_at = now_iso()
+                repo.put_project(user_id, project)
+        except Exception as e:
+            print(f"[AUTONOMOUS] Failed to auto-generate spec: {e}")
+
+    # If still no spec, create a minimal one
+    if not project.spec_yaml:
+        project.spec_yaml = f"""goal: Build {project.name}
+template: {project.template_id}
+features:
+  - Core functionality as described
+  - Clean, modern UI
+  - Error handling
+"""
+        project.spec_updated_at = now_iso()
+        repo.put_project(user_id, project)
+
+    # Get skeleton manifest
+    bucket = _artifacts_bucket()
+    skeleton_manifest = []
+    if bucket:
+        try:
+            skeleton_manifest = _get_skeleton_manifest(bucket)
+        except Exception:
+            pass
+
+    # Track current build ID for polling (must be defined before poll function)
+    current_build_id: str = ""
+
+    # Helper to poll CodeBuild status
+    def poll_codebuild_status(codebuild_id: str) -> dict:
+        """Poll CodeBuild for build status.
+
+        Note: The buildspec always exits 0, so we also check S3 for actual build result.
+        Uses project_id and build_id from the enclosing scope (set by trigger_codebuild).
+        """
+        nonlocal current_build_id  # Will be set by trigger_codebuild
+
+        if not boto3:
+            return {"status": "UNKNOWN", "logs": "boto3 not available"}
+        try:
+            cb = boto3.client("codebuild")
+            response = cb.batch_get_builds(ids=[codebuild_id])
+            builds = response.get("builds", [])
+            if not builds:
+                return {"status": "UNKNOWN", "logs": "Build not found"}
+
+            build = builds[0]
+            status = build.get("buildStatus", "UNKNOWN")
+
+            # If CodeBuild says SUCCEEDED, verify the actual Next.js build result
+            # by checking if the app/ folder exists in S3
+            logs = ""
+            if status == "SUCCEEDED" and current_build_id:
+                try:
+                    # Get the build.log from S3 to check actual compilation result
+                    s3 = boto3.client("s3")
+                    preview_bucket = os.getenv("FACTORY_PREVIEW_BUCKET", "factory-dev-factory-preview")
+                    build_log_key = f"p/{project_id}/{current_build_id}/report/build.log"
+
+                    try:
+                        log_obj = s3.get_object(Bucket=preview_bucket, Key=build_log_key)
+                        logs = log_obj["Body"].read().decode("utf-8", errors="replace")
+
+                        # Check for actual build failure indicators in the log
+                        if any(indicator in logs for indicator in [
+                            "Failed to compile",
+                            "Build failed because of webpack errors",
+                            "error TS",
+                            "TypeError:",
+                            "SyntaxError:",
+                            "Unexpected eof",
+                        ]):
+                            print(f"[POLL] CodeBuild succeeded but Next.js build failed!")
+                            status = "FAILED"  # Override to FAILED
+
+                        # Also check if app/ folder exists
+                        app_check = s3.list_objects_v2(
+                            Bucket=preview_bucket,
+                            Prefix=f"p/{project_id}/{current_build_id}/app/",
+                            MaxKeys=1
+                        )
+                        if app_check.get("KeyCount", 0) == 0:
+                            print(f"[POLL] No app/ folder found - build failed")
+                            status = "FAILED"
+                    except Exception as s3_err:
+                        # Build log not uploaded yet or error - keep checking
+                        if "NoSuchKey" not in str(s3_err):
+                            print(f"[POLL] S3 check error: {s3_err}")
+                except Exception as e:
+                    print(f"[POLL] Error checking S3 build result: {e}")
+
+            # Get build logs on failure
+            if status in ("FAILED", "FAULT", "STOPPED"):
+                if not logs:  # Only fetch from CloudWatch if we don't have S3 logs
+                    try:
+                        logs_info = build.get("logs", {})
+                        log_group = logs_info.get("groupName")
+                        log_stream = logs_info.get("streamName")
+                        if log_group and log_stream:
+                            logs_client = boto3.client("logs")
+                            log_events = logs_client.get_log_events(
+                                logGroupName=log_group,
+                                logStreamName=log_stream,
+                                limit=100,
+                                startFromHead=False,
+                            )
+                            logs = "\n".join([e.get("message", "") for e in log_events.get("events", [])])
+                    except Exception:
+                        logs = "Failed to fetch logs"
+
+            return {"status": status, "logs": logs}
+        except Exception as e:
+            return {"status": "UNKNOWN", "logs": str(e)}
+
+    async def generate_sse():
+        """Generate SSE events for the autonomous build."""
+        try:
+            # Helper to trigger actual CodeBuild (simplified for SSE)
+            def trigger_codebuild(project_id: str, gen_result: dict, user_id: str) -> dict:
+                nonlocal current_build_id
+                try:
+                    # Create build record using repo method
+                    _, b = repo.create_build(user_id, project_id, "preview")
+                    current_build_id = b.build_id  # Track for polling
+
+                    # Upload artifacts to S3 (upload if we have files OR patch_diff)
+                    files_list = gen_result.get("files", [])
+                    patch_diff = gen_result.get("patch_diff", "")
+                    print(f"[AUTONOMOUS] bucket={bucket}, files_count={len(files_list)}, patch_len={len(patch_diff)}")
+                    if bucket and (files_list or patch_diff):
+                        # Upload patch diff if present
+                        if patch_diff:
+                            patch_key = f"projects/{project_id}/builds/{b.build_id}/patch.diff"
+                            _s3_put_text(bucket, patch_key, patch_diff, "text/plain; charset=utf-8")
+
+                        # Upload files manifest (always upload if we have files)
+                        if files_list:
+                            files_manifest = [
+                                {"path": fc["path"], "content": fc["content"]}
+                                for fc in files_list
+                            ]
+                            files_key = f"projects/{project_id}/builds/{b.build_id}/files.json"
+                            _s3_put_text(bucket, files_key, json.dumps(files_manifest), "application/json")
+
+                        # Upload security report
+                        security_report = {
+                            "passed": gen_result.get("security_passed", True),
+                            "findings": gen_result.get("security_findings", []),
+                        }
+                        security_key = f"projects/{project_id}/builds/{b.build_id}/security.json"
+                        _s3_put_text(bucket, security_key, json.dumps(security_report, indent=2), "application/json")
+
+                    # Trigger CodeBuild
+                    cb_project = os.getenv("CODEBUILD_PREVIEW_PROJECT", "").strip()
+                    cb_build_id = None
+                    if cb_project:
+                        template_key = os.getenv("FACTORY_TEMPLATE_KEY", "").strip()
+                        # Only pass keys for artifacts that were actually uploaded
+                        overrides = {}
+                        if template_key:
+                            overrides["TEMPLATE_KEY"] = template_key
+                        if patch_diff:
+                            overrides["PATCH_KEY"] = f"projects/{project_id}/builds/{b.build_id}/patch.diff"
+                        if files_list:
+                            overrides["FILES_MANIFEST_KEY"] = f"projects/{project_id}/builds/{b.build_id}/files.json"
+                        cb_build_id = _start_codebuild(
+                            cb_project,
+                            project_id,
+                            b.build_id,
+                            overrides=overrides or None,
+                        )
+                    if cb_build_id:
+                        b.status = "running"
+                        b.artifacts = b.artifacts or Build.Artifacts()
+                        b.artifacts.provider_build_id = cb_build_id
+                        # Use environment-configured preview base URL
+                        preview_base = _preview_base_url()
+                        if preview_base:
+                            b.artifacts.preview_url = f"{preview_base}/p/{project_id}/{b.build_id}/app/index.html"
+                            b.artifacts.checks_report_url = f"{preview_base}/p/{project_id}/{b.build_id}/report/index.html"
+                        repo.update_build(user_id, b)
+                        return {
+                            "success": True,
+                            "build_id": b.build_id,
+                            "codebuild_id": cb_build_id,
+                            "poll_fn": poll_codebuild_status,
+                        }
+
+                    return {"success": False, "error": "CodeBuild trigger failed"}
+                except Exception as e:
+                    return {"success": False, "error": str(e)}
+
+            # Run the autonomous build loop
+            # Skeleton path for compile validation (npm ci && npm run build)
+            skeleton_path = str(TEMPLATES_DIR / project.template_id)
+            final_status = None
+            async for sse_event in run_autonomous_build_with_sse(
+                project_id=project_id,
+                spec_yaml=project.spec_yaml,
+                generate_code_fn=lambda **kw: run_async(generate_code_with_agents(
+                    project_id=kw.get("project_id"),
+                    project_name=project.name,
+                    template_id=project.template_id,
+                    spec_yaml=kw.get("spec_yaml"),
+                    user_id=kw.get("user_id", user_id),
+                    skeleton_manifest=skeleton_manifest,
+                    templates_dir=TEMPLATES_DIR,
+                    modules_dir=MODULES_DIR,
+                )),
+                trigger_codebuild_fn=trigger_codebuild,
+                user_id=user_id,
+                max_attempts=3,
+                skeleton_path=skeleton_path,  # For compile validation
+            ):
+                yield sse_event
+                # Track final status to update database
+                if '"phase": "succeeded"' in sse_event:
+                    final_status = "succeeded"
+                elif '"phase": "failed"' in sse_event:
+                    final_status = "failed"
+
+            # Update build status in database when complete
+            if current_build_id and final_status:
+                try:
+                    build = repo.get_build(user_id, current_build_id)
+                    if build:
+                        build.status = final_status
+                        repo.update_build(user_id, build)
+                        print(f"[AUTONOMOUS] Updated build {current_build_id} status to {final_status}")
+
+                        # Also update project's last_build_id so frontend shows it on refresh
+                        project_obj = repo.get_project(user_id, project_id)
+                        if project_obj:
+                            project_obj.last_build_id = current_build_id
+                            repo.put_project(user_id, project_obj)
+                            print(f"[AUTONOMOUS] Updated project {project_id} last_build_id to {current_build_id}")
+                except Exception as e:
+                    print(f"[AUTONOMOUS] Failed to update build status: {e}")
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            error_event = f"data: {json.dumps({'phase': 'failed', 'message': str(e), 'error': True})}\n\n"
+            yield error_event
+
+    return StreamingResponse(
+        generate_sse(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )
+
+
+# Get security report for a build
+@app.get("/v1/builds/{build_id}/security")
+def get_build_security(
+    build_id: str,
+    x_user_id: Optional[str] = Header(default=None),
+) -> dict:
+    """Get security scan results for a build."""
+    user_id = _require_user(x_user_id)
+    repo = get_repo()
+
+    build = repo.get_build(user_id, build_id)
+    if not build:
+        raise HTTPException(status_code=404, detail="Build not found")
+
+    # Try to fetch from S3
+    bucket = os.getenv("ARTIFACT_BUCKET", "")
+    if bucket:
+        try:
+            security_key = f"projects/{build.project_id}/builds/{build_id}/security.json"
+            s3 = boto3.client("s3") if boto3 else None
+            if s3:
+                response = s3.get_object(Bucket=bucket, Key=security_key)
+                return json.loads(response["Body"].read().decode("utf-8"))
+        except Exception:
+            pass
+
+    # Return default if not found
+    return {
+        "passed": True,
+        "findings": [],
+        "summary": "No security report available",
+    }
 
 
 ORCH_ROOT = Path(__file__).resolve().parents[1]

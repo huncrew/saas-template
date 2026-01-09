@@ -38,7 +38,7 @@ export const factoryApi = {
   getBuild(buildId: string): Promise<APIResponse<FactoryBuild>> {
     return request<FactoryBuild>(`/api/factory/builds/${encodeURIComponent(buildId)}`, { method: "GET" });
   },
-  chatProject(projectId: string, input: { message: string; auto_preview?: boolean }): Promise<APIResponse<FactoryProjectChatResponse>> {
+  chatProject(projectId: string, input: { message: string; auto_preview?: boolean; history?: { role: string; content: string }[] }): Promise<APIResponse<FactoryProjectChatResponse>> {
     return request<FactoryProjectChatResponse>(`/api/factory/projects/${encodeURIComponent(projectId)}/chat`, {
       method: "POST",
       body: JSON.stringify(input),

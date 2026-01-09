@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { SignedIn, SignedOut, UserButton, useAuth } from "@clerk/nextjs";
-import { Zap, Sparkles, Menu, X, LayoutDashboard } from "lucide-react";
+import { Hammer, Sparkles, Menu, X, LayoutDashboard } from "lucide-react";
 
 export function Navigation() {
   const { isLoaded } = useAuth();
@@ -30,14 +30,14 @@ export function Navigation() {
           {/* Logo - Fixed Left */}
           <div className="flex items-center">
             <Link href="/" className="flex items-center space-x-3 group">
-              <div className="w-9 h-9 bg-gradient-to-br from-emerald-500 to-green-600 rounded-xl flex items-center justify-center shadow-lg shadow-emerald-500/25 group-hover:shadow-emerald-500/40 transition-all duration-300">
-                <Zap className="h-5 w-5 text-white" />
+              <div className="w-9 h-9 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/25 group-hover:shadow-blue-500/40 transition-all duration-300">
+                <Hammer className="h-5 w-5 text-white" />
               </div>
               <span className="text-xl font-bold bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent">
-                Factory
+                Oasify
               </span>
               <div className="flex items-center">
-                <Sparkles className="h-4 w-4 text-emerald-500 opacity-60" />
+                <Sparkles className="h-4 w-4 text-blue-500 opacity-60" />
               </div>
             </Link>
           </div>
@@ -47,13 +47,13 @@ export function Navigation() {
             <div className="flex items-center space-x-12 bg-white/60 backdrop-blur-xl px-8 py-3 rounded-full border border-gray-200/60 shadow-lg shadow-gray-900/5">
               <Link 
                 href="/projects"
-                className="relative text-gray-700 hover:text-emerald-600 transition-all duration-300 font-semibold text-sm group px-4 py-2 rounded-lg hover:bg-emerald-50"
+                className="relative text-gray-700 hover:text-blue-600 transition-all duration-300 font-semibold text-sm group px-4 py-2 rounded-lg hover:bg-blue-50"
               >
                 <span className="flex items-center">
                   <LayoutDashboard className="w-4 h-4 mr-2 opacity-60 group-hover:opacity-100 transition-opacity" />
                   Projects
                 </span>
-                <span className="absolute inset-x-0 -bottom-1 h-0.5 bg-gradient-to-r from-emerald-500 to-green-500 transform scale-x-0 group-hover:scale-x-100 transition-transform duration-300 origin-center"></span>
+                <span className="absolute inset-x-0 -bottom-1 h-0.5 bg-gradient-to-r from-blue-500 to-purple-500 transform scale-x-0 group-hover:scale-x-100 transition-transform duration-300 origin-center"></span>
               </Link>
             </div>
           </div>
@@ -70,7 +70,7 @@ export function Navigation() {
                     appearance={{
                       elements: {
                         avatarBox:
-                          "h-9 w-9 rounded-full border border-emerald-200 shadow-sm shadow-emerald-500/10",
+                          "h-9 w-9 rounded-full border border-blue-200 shadow-sm shadow-blue-500/10",
                       },
                     }}
                   />
@@ -78,14 +78,14 @@ export function Navigation() {
 
                 <SignedOut>
                   <div className="hidden sm:flex items-center space-x-3">
-                    <Button variant="ghost" className="text-gray-600 hover:text-emerald-600 font-medium" asChild>
+                    <Button variant="ghost" className="text-gray-600 hover:text-blue-600 font-medium" asChild>
                       <Link href="/auth/signin">Sign In</Link>
                     </Button>
                     <Button
-                      className="bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700 text-white shadow-lg shadow-emerald-500/25 hover:shadow-emerald-500/40 transition-all duration-300"
+                      className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 transition-all duration-300"
                       asChild
                     >
-                      <Link href="/projects">Open Factory</Link>
+                      <Link href="/projects">Open Oasify</Link>
                     </Button>
                   </div>
                 </SignedOut>
@@ -113,7 +113,7 @@ export function Navigation() {
             <div className="px-2 pt-2 pb-6 space-y-1">
               <Link
                 href="/projects"
-                className="block px-3 py-2 text-gray-600 hover:text-emerald-600 hover:bg-emerald-50 rounded-md font-medium transition-colors"
+                className="block px-3 py-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-md font-medium transition-colors"
                 onClick={() => setIsMobileMenuOpen(false)}
               >
                 Projects
@@ -126,11 +126,11 @@ export function Navigation() {
                     </Link>
                   </Button>
                   <Button
-                    className="w-full bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700 text-white"
+                    className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white"
                     asChild
                   >
                     <Link href="/projects" onClick={() => setIsMobileMenuOpen(false)}>
-                      Open Factory
+                      Open Oasify
                     </Link>
                   </Button>
                 </div>

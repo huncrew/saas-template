@@ -1,13 +1,13 @@
 "use client";
 
 import Link from "next/link";
+import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 
-export default function AuthErrorPage() {
+function AuthErrorInner() {
   const params = useSearchParams();
   const error = params.get("error") || "Configuration";
-
   return (
     <div className="space-y-4">
       <div>
@@ -43,6 +43,14 @@ export default function AuthErrorPage() {
         </Button>
       </div>
     </div>
+  );
+}
+
+export default function AuthErrorPage() {
+  return (
+    <Suspense fallback={<div className="text-sm text-gray-600">Loading…</div>}>
+      <AuthErrorInner />
+    </Suspense>
   );
 }
 

@@ -32,6 +32,7 @@ class CodeGenState(AgentState):
     template_id: str = ""
     skeleton_manifest: list[str] = field(default_factory=list)  # Files in template
     template_context: str = ""
+    additional_instructions: str = ""  # Extra instructions (e.g., from previous build failures)
 
     # Generated output
     file_changes: list[FileChange] = field(default_factory=list)
@@ -58,19 +59,253 @@ The app is built on a production template with:
 - **Frontend**: Next.js 15 (App Router), TypeScript, Tailwind CSS, shadcn/ui
 - **Backend**: Python 3.11 Lambda handlers
 - **Database**: DynamoDB (single-table design)
-- **Auth**: Clerk
-- **Payments**: Stripe
+- **Auth**: Clerk (optional - app must work without it for previews)
+
+## Available UI Components (from @/components/ui/*)
+These are the ONLY UI components available. Import each from its own file:
+- accordion, alert, avatar, badge, button, card, carousel, checkbox
+- dialog, dropdown-menu, form, input, label, popover, progress, radio-group
+- scroll-area, select, separator, sheet, skeleton, slider, sonner, switch
+- table, tabs, textarea, tooltip
+
+Example imports:
+  import { Button } from "@/components/ui/button"
+  import { Card, CardHeader, CardContent, CardTitle } from "@/components/ui/card"
+  import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+  import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+
+## CRITICAL: Closed-World Import Rule
+If you import something, you MUST either:
+1. Import from an existing template file (listed above), OR
+2. Generate the file yourself with the correct exports
+
+DO NOT:
+- Import custom components from @/components/ui/* (e.g., NO ArsenalLogo in ui folder)
+- Import assets that don't exist (e.g., NO @/assets/logo.png)
+- Import types without exporting them (if you use `type Foo`, ensure `export type Foo = ...`)
+- Use bare imports like `from "@/components/ui"` - always specify the file
+
+If you need a custom logo/icon, use lucide-react icons or inline SVG.
+
+## CRITICAL: Files You Must NOT Overwrite
+These files exist in the template and MUST NOT be replaced:
+- frontend/src/types/index.ts (has User, Subscription, SubscriptionStatus types)
+- frontend/src/lib/api.ts (has apiClient export)
+- frontend/src/lib/subscription.ts
+- frontend/src/app/dashboard/* (existing dashboard pages)
+- Any file in frontend/src/components/ui/ that already exists
+
+Instead, create NEW files for your types and components:
+- Put app-specific types in: frontend/src/types/app-types.ts
+- Put app components in: frontend/src/components/app/* (NOT components/ui)
+
+## CRITICAL: Correct Imports
+- For API calls: import { apiClient } from "@/lib/api" (NOT 'api' - that doesn't exist!)
+- For your types: import { YourType } from "@/types/app-types"
+- For UI components: import { Button } from "@/components/ui/button"
+
+## TEMPLATE CONTRACT FILES (READ CAREFULLY - these are the ACTUAL file contents)
+
+### @/lib/api.ts - API Client (DO NOT RECREATE, just import)
+```typescript
+// Exports: apiClient (instance of ApiClient class)
+// ONLY these 4 methods exist - DO NOT call any other methods:
+//   apiClient.getUser(userId: string): Promise<APIResponse<User>>
+//   apiClient.createUser(userData: Partial<User>): Promise<APIResponse<User>>
+//   apiClient.getSubscriptionStatus(userId: string): Promise<APIResponse<SubscriptionStatus>>
+//   apiClient.createCheckoutSession(priceId: string, userId?: string): Promise<APIResponse<{ clientSecret: string }>>
+export const apiClient = new ApiClient();
+```
+
+### IMPORTANT: Custom API Calls
+For features NOT covered by apiClient (chat, custom endpoints, etc.), use fetch() directly:
+```typescript
+// Example: Custom chat endpoint (use fetch, NOT apiClient)
+const response = await fetch('/api/chat', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ message: userMessage }),
+});
+const data = await response.json();
+
+// For preview builds without a real backend, use MOCK DATA instead:
+const mockResponse = { reply: "This is a mock response for preview" };
+```
+
+### @/types/index.ts - Core Types (DO NOT RECREATE, import from here)
+```typescript
+export interface User {
+  id: string;
+  email: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+  subscriptionStatus: 'active' | 'inactive' | 'cancelled';
+  subscriptionId?: string;
+  cognitoId: string;
+}
+
+export interface Subscription {
+  id: string;
+  userId: string;
+  stripeSubscriptionId: string;
+  status: 'active' | 'past_due' | 'cancelled' | 'incomplete';
+  currentPeriodStart: string;
+  currentPeriodEnd: string;
+  planId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PricingPlan {
+  id: string;
+  name: string;
+  price: number;
+  interval: 'month' | 'year';
+  features: string[];
+  stripePriceId: string;
+  popular?: boolean;
+}
+
+export interface APIResponse<T = unknown> {
+  success: boolean;
+  data?: T;
+  error?: string;
+  message?: string;
+}
+
+export interface SubscriptionStatus {
+  subscription?: Subscription;
+  subscriptionStatus: 'active' | 'inactive' | 'cancelled';
+  hasActiveSubscription: boolean;
+  stripePriceId?: string | null;
+}
+```
+
+### @/lib/utils.ts - Utility Functions
+```typescript
+import { clsx, type ClassValue } from "clsx"
+import { twMerge } from "tailwind-merge"
+
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs))
+}
+```
+
+### Icons - Use lucide-react (already installed)
+```typescript
+// Example imports - use these instead of custom icon components or <img> tags
+import { Home, Settings, User, Search, Menu, X, ChevronDown, Plus, Trash, Edit, Check, AlertCircle, Info, Star, Heart, Mail, Phone, MapPin, Calendar, Clock, ArrowLeft, ArrowRight, ExternalLink, Download, Upload, Share, Copy, Loader2, Trophy, Target, TrendingUp, Users, Activity, Zap, Shield, Award } from "lucide-react"
+```
+
+### CRITICAL: No <img> tags for logos/icons
+NEVER use <img src="..."> for logos or icons - the images don't exist!
+Instead use:
+- lucide-react icons (see above)
+- Inline SVG
+- Emoji as fallback
+- Text/initials in a colored div
+
+Example - instead of broken image:
+```tsx
+// ❌ WRONG - image doesn't exist
+<img src="/arsenal-logo.png" alt="Arsenal" />
+
+// ✅ CORRECT - use icon or styled div
+<div className="w-12 h-12 bg-red-600 rounded-full flex items-center justify-center text-white font-bold text-xl">A</div>
+// or
+<Shield className="w-12 h-12 text-red-600" />
+```
 
 ## Code Generation Rules
 
 ### Frontend (frontend/src/...)
 - Use TypeScript strictly (no `any` types)
-- Use shadcn/ui components from `@/components/ui/*`
+- Import UI components from `@/components/ui/*` (e.g., `import { Button } from "@/components/ui/button"`)
 - Use Tailwind for styling (no CSS files)
 - Pages go in `app/` directory
-- Reusable components go in `components/`
-- API calls use fetch to `process.env.NEXT_PUBLIC_API_BASE_URL`
-- Use Clerk's `useUser()` and `useAuth()` for auth
+- Reusable components go in `components/app/` (NOT components/ui - those are template components)
+
+### CRITICAL: Preview builds have NO backend - use LOCAL STATE ONLY
+This is a STATIC preview build. There is NO API server running. You MUST:
+- Use useState() for ALL data (mock/hardcoded initial values)
+- DO NOT call fetch(), apiClient, or any API endpoints
+- Store everything in React state (it won't persist, that's fine for preview)
+
+### CRITICAL: Use REALISTIC mock data - not empty/zero values!
+Always initialize state with realistic, believable sample data:
+
+```tsx
+// ❌ WRONG - empty/zero values look broken
+const [position, setPosition] = useState(0);
+const [matches, setMatches] = useState([]);
+
+// ✅ CORRECT - realistic mock data
+const [teamData, setTeamData] = useState({
+  position: 4,
+  points: 52,
+  wins: 16,
+  draws: 4,
+  losses: 6,
+  recentResults: ["W", "W", "D", "W", "L"],
+});
+
+const [matches, setMatches] = useState([
+  { id: 1, opponent: "Chelsea", date: "Jan 15, 2025", location: "Home", result: "2-1" },
+  { id: 2, opponent: "Liverpool", date: "Jan 22, 2025", location: "Away", result: "Upcoming" },
+  { id: 3, opponent: "Man City", date: "Feb 1, 2025", location: "Home", result: "Upcoming" },
+]);
+```
+
+### CRITICAL: Use Tailwind for attractive styling
+Make it look GOOD with colors, spacing, shadows:
+
+```tsx
+// ❌ WRONG - plain and ugly
+<div>
+  <h1>Team Status</h1>
+  <p>Position: {position}</p>
+</div>
+
+// ✅ CORRECT - styled and attractive
+<div className="bg-gradient-to-br from-red-600 to-red-800 rounded-2xl p-6 text-white shadow-xl">
+  <h1 className="text-2xl font-bold mb-4 flex items-center gap-2">
+    <Trophy className="w-6 h-6" />
+    Team Status
+  </h1>
+  <div className="grid grid-cols-3 gap-4">
+    <div className="bg-white/10 rounded-xl p-4 text-center">
+      <div className="text-3xl font-bold">{teamData.position}</div>
+      <div className="text-sm opacity-80">League Position</div>
+    </div>
+    {/* more stats... */}
+  </div>
+</div>
+```
+
+### Make it INTERACTIVE
+Add click handlers, hover states, and state updates:
+```tsx
+const [selectedMatch, setSelectedMatch] = useState<number | null>(null);
+
+<div
+  onClick={() => setSelectedMatch(match.id)}
+  className="cursor-pointer hover:bg-gray-50 transition-colors p-4 rounded-lg border"
+>
+  {match.opponent}
+</div>
+```
+
+### CRITICAL: "use client" Directive
+- ALL React components with hooks (useState, useEffect, useUser, etc.) MUST start with "use client";
+- ALL pages in frontend/src/app/**/*.tsx that use ANY interactivity MUST have "use client"; as the FIRST LINE
+- This is REQUIRED for Next.js 15 App Router - without it, the app will crash
+- Format: The file must literally start with: "use client";
+- Example:
+  "use client";
+
+  import { useState } from "react";
+  // ... rest of component
 
 ### Backend (backend/lambdas/api/...)
 - Python 3.11 with type hints
@@ -96,12 +331,16 @@ Generate each file separately using this format:
 ```
 
 Generate files in this order:
-1. Types/interfaces (frontend/src/types/...)
+1. Types/interfaces (frontend/src/types/app-types.ts - NOT index.ts!)
 2. Backend handlers (backend/lambdas/api/...)
-3. UI components (frontend/src/components/...)
-4. Pages (frontend/src/app/...)
+3. App components (frontend/src/components/app/... - NOT components/ui!)
+4. Pages (frontend/src/app/... - but NOT dashboard pages!)
 
-IMPORTANT: Generate complete, working files. No placeholders or TODOs."""
+IMPORTANT:
+- Generate complete, working files. No placeholders or TODOs.
+- NEVER overwrite types/index.ts - create types/app-types.ts instead
+- NEVER import 'api' from @/lib/api - import 'apiClient' instead
+- For simple previews, use mock data instead of API calls"""
 
 
 FIX_ERRORS_PROMPT = """The generated code had validation errors. Fix the issues and regenerate ONLY the affected files.
@@ -139,6 +378,7 @@ class CodeGeneratorAgent(Agent[CodeGenState, CodeGenResult]):
         template_id: str = "",
         skeleton_manifest: Optional[list[str]] = None,
         template_context: str = "",
+        additional_instructions: str = "",
         **kwargs
     ) -> CodeGenState:
         return CodeGenState(
@@ -147,6 +387,7 @@ class CodeGeneratorAgent(Agent[CodeGenState, CodeGenResult]):
             template_id=template_id,
             skeleton_manifest=skeleton_manifest or [],
             template_context=template_context,
+            additional_instructions=additional_instructions,
             max_iterations=5,  # Allow several fix attempts
         )
 
@@ -160,8 +401,16 @@ class CodeGeneratorAgent(Agent[CodeGenState, CodeGenResult]):
             ]
             manifest_text = "\n".join(relevant)
 
-        return f"""## Project: {state.project_name}
+        # Include additional instructions from previous build failures
+        extra_instructions = ""
+        if state.additional_instructions:
+            extra_instructions = f"""
+## IMPORTANT - Previous Build Errors to Fix:
+{state.additional_instructions}
+"""
 
+        return f"""## Project: {state.project_name}
+{extra_instructions}
 ## Existing Template Files:
 {manifest_text}
 
@@ -253,6 +502,84 @@ Follow the rules in your system prompt carefully."""
     def _count_lines(self, changes: list[FileChange]) -> int:
         return sum(len(c.content.split("\n")) for c in changes)
 
+    def _fix_clerk_imports(self, changes: list[FileChange]) -> list[FileChange]:
+        """
+        Fix Clerk imports that use @clerk/nextjs (doesn't exist) to work without auth.
+        For preview builds, we strip auth entirely since it won't work in static export.
+        """
+        import re
+
+        for change in changes:
+            if not change.path.startswith("frontend/src/"):
+                continue
+            if not (change.path.endswith(".tsx") or change.path.endswith(".ts")):
+                continue
+
+            content = change.content
+
+            # Remove @clerk/nextjs imports entirely
+            content = re.sub(
+                r'^import\s+\{[^}]*\}\s+from\s+["\']@clerk/nextjs["\'];?\s*\n?',
+                '',
+                content,
+                flags=re.MULTILINE
+            )
+
+            # Replace useUser() calls with a mock that returns null
+            # This makes the code work without auth
+            if 'useUser' in content and '@clerk' not in content:
+                # Add a mock useUser if it's used but import was removed
+                mock_hook = 'const useUser = () => ({ user: null, isLoaded: true, isSignedIn: false });\n'
+                if '"use client"' in content:
+                    content = content.replace('"use client";\n', '"use client";\n\n' + mock_hook, 1)
+                elif "'use client'" in content:
+                    content = content.replace("'use client';\n", "'use client';\n\n" + mock_hook, 1)
+                else:
+                    content = mock_hook + content
+
+            # Remove userId references that would be undefined
+            content = re.sub(r'userId=\{userId\}', '', content)
+            content = re.sub(r'const\s+\{\s*userId\s*\}\s*=\s*useUser\(\);?\s*\n?', '', content)
+
+            change.content = content
+
+        return changes
+
+    def _ensure_use_client(self, changes: list[FileChange]) -> list[FileChange]:
+        """
+        Ensure frontend React files have 'use client' directive when needed.
+        This is CRITICAL for Next.js 15 App Router compatibility.
+        """
+        # Patterns that indicate client-side code
+        client_indicators = [
+            "useState", "useEffect", "useRef", "useCallback", "useMemo",
+            "useContext", "useReducer", "useLayoutEffect",
+            "onClick", "onChange", "onSubmit", "onBlur", "onFocus",  # Event handlers
+            "useRouter", "usePathname", "useSearchParams",  # Next.js client hooks
+        ]
+
+        for change in changes:
+            # Only process frontend TypeScript/TSX files
+            if not change.path.startswith("frontend/src/"):
+                continue
+            if not (change.path.endswith(".tsx") or change.path.endswith(".ts")):
+                continue
+
+            content = change.content.strip()
+
+            # Check if file already has "use client"
+            if content.startswith('"use client"') or content.startswith("'use client'"):
+                continue
+
+            # Check if file needs "use client"
+            needs_use_client = any(indicator in content for indicator in client_indicators)
+
+            if needs_use_client:
+                # Prepend "use client"; directive
+                change.content = '"use client";\n\n' + content
+
+        return changes
+
     async def run(
         self,
         state: CodeGenState,
@@ -291,6 +618,12 @@ Follow the rules in your system prompt carefully."""
 
             # Determine create vs modify
             new_changes = self._determine_actions(new_changes, state.skeleton_manifest)
+
+            # CRITICAL: Ensure "use client" directive on frontend files
+            new_changes = self._ensure_use_client(new_changes)
+
+            # Fix @clerk/nextjs imports (package doesn't exist, strip for preview)
+            new_changes = self._fix_clerk_imports(new_changes)
 
             if is_fix_iteration:
                 # Merge fixes with existing changes

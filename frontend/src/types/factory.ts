@@ -8,6 +8,42 @@ export interface FactoryProject {
   created_at: string;
   last_build_id?: string;
   status?: string;
+  spec_yaml?: string;
+  spec_markdown?: string;
+  spec_updated_at?: string;
+}
+
+export interface FactorySpec {
+  goal?: string;
+  target_users?: string[];
+  modules?: string[];
+  features?: Array<{
+    id: string;
+    name: string;
+    description?: string;
+    ui_components?: string[];
+    api_endpoints?: string[];
+    data_models?: string[];
+  }>;
+  data_entities?: Array<{
+    name: string;
+    description?: string;
+    fields?: Array<{
+      name: string;
+      type: string;
+    }>;
+  }>;
+  api_endpoints?: Array<{
+    method: string;
+    path: string;
+    description?: string;
+  }>;
+  ui_pages?: Array<{
+    path: string;
+    name: string;
+    components?: string[];
+  }>;
+  integrations?: string[];
 }
 
 export interface FactoryBuildArtifacts {

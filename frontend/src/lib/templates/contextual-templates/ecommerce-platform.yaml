@@ -1,0 +1,478 @@
+# E-commerce Platform Contextual Template
+# Context-driven template that adapts based on business model and requirements
+
+metadata:
+  id: "ecommerce-platform"
+  name: "Modern E-commerce Platform"
+  description: "Full-featured online store with payments, inventory, and customer management"
+  category: "ecommerce"
+  tags: ["ecommerce", "payments", "inventory", "customer-management", "analytics"]
+  version: "1.0.0"
+  author: "Oasify"
+  license: "MIT"
+  difficulty: "intermediate"
+  estimatedBuildTime: "20-30 minutes"
+  icon: "🛒"
+  preview:
+    images:
+      - "/templates/ecommerce/preview1.png"
+      - "/templates/ecommerce/preview2.png"
+    liveDemo: "https://ecommerce-demo.oasify.build"
+
+# Context analysis to understand business model
+context:
+  domain:
+    primary: "ecommerce"
+    business_models: ["b2c", "b2b", "marketplace", "subscription", "digital_products", "services"]
+    industries: ["fashion", "electronics", "books", "food", "health", "home", "automotive", "software"]
+    use_cases:
+      - "Direct-to-consumer retail store"
+      - "B2B wholesale marketplace"
+      - "Digital product distribution"
+      - "Subscription box service"
+      - "Service booking platform"
+      - "Dropshipping operation"
+      - "Multi-vendor marketplace"
+
+  user_types:
+    - type: "customer-facing"
+      description: "Public online storefront"
+      features: ["product_catalog", "shopping_cart", "customer_accounts", "reviews"]
+    - type: "b2b-platform"
+      description: "Business-to-business sales"
+      features: ["bulk_pricing", "quote_requests", "approval_workflows", "credit_terms"]
+    - type: "marketplace"
+      description: "Multi-vendor platform"
+      features: ["vendor_management", "commission_tracking", "dispute_resolution"]
+    - type: "enterprise"
+      description: "Large-scale commerce operation"
+      features: ["erp_integration", "advanced_analytics", "custom_workflows"]
+
+  product_types:
+    - "physical_goods"
+    - "digital_downloads"
+    - "subscription_services"
+    - "booking_services"
+    - "virtual_products"
+    - "bundled_products"
+    - "customizable_products"
+
+  business_scale:
+    - scale: "startup"
+      description: "New business with basic needs"
+      features: ["essential_functionality", "cost_effective", "easy_setup"]
+    - scale: "growing"
+      description: "Expanding business with increasing complexity"
+      features: ["advanced_features", "integrations", "analytics"]
+    - scale: "enterprise"
+      description: "Large-scale operation with complex requirements"
+      features: ["custom_workflows", "enterprise_integrations", "white_labeling"]
+
+# Modular configuration based on context
+modules:
+  # Core e-commerce modules - always included
+  - type: "ecommerce-core"
+    variant: "product_catalog"
+    config:
+      product_variants: true
+      inventory_tracking: true
+      category_management: true
+      search_functionality: true
+      filtering_facets: true
+      product_reviews: true
+      wishlist: true
+      compare_products: true
+    dependencies: ["database", "file_storage", "search_engine"]
+
+  - type: "ecommerce-core"
+    variant: "shopping_cart"
+    config:
+      persistent_cart: true
+      guest_checkout: true
+      cart_abandonment: true
+      cross_sell_suggestions: true
+      discount_codes: true
+      tax_calculation: true
+      shipping_calculation: true
+    dependencies: ["database", "payment_processing"]
+
+  - type: "payment-processing"
+    variant: "stripe"
+    config:
+      payment_methods: ["card", "bank", "wallet"]
+      currencies: ["USD", "EUR", "GBP"]
+      subscriptions: false  # Default, can be enabled
+      marketplace_payments: false
+      tax_handling: "automatic"
+    conditionalLogic:
+      condition: "business_model == 'subscription'"
+      whenTrue:
+        config:
+          subscriptions: true
+          billing_cycles: ["monthly", "yearly"]
+          trial_periods: true
+
+  # Authentication based on customer type
+  - type: "authentication"
+    variant: "clerk"
+    config:
+      providers: ["google", "email"]
+      guest_checkout: true
+      customer_profiles: true
+      address_book: true
+      order_history: true
+    conditionalLogic:
+      condition: "user_type == 'b2b-platform'"
+      whenTrue:
+        config:
+          business_verification: true
+          credit_applications: true
+          approval_workflows: true
+
+  # Database configuration
+  - type: "database"
+    variant: "planetscale"
+    config:
+      tables: ["products", "orders", "customers", "inventory", "categories"]
+      relationships: true
+      indexing: "optimized"
+      backup: "daily"
+    conditionalLogic:
+      condition: "scale == 'enterprise'"
+      whenTrue:
+        variant: "supabase_postgres"
+        config:
+          read_replicas: true
+          connection_pooling: true
+
+  # File storage for product images
+  - type: "file-storage"
+    variant: "vercel_blob"
+    config:
+      image_optimization: true
+      cdn_distribution: true
+      multiple_variants: true
+      watermarking: false
+    conditionalLogic:
+      condition: "product_types includes 'digital_downloads'"
+      whenTrue:
+        variant: "aws_s3"
+        config:
+          secure_downloads: true
+          access_controls: true
+          download_limits: true
+
+  # Search functionality
+  - type: "search-engine"
+    variant: "algolia"
+    config:
+      instant_search: true
+      faceted_search: true
+      autocomplete: true
+      typo_tolerance: true
+      synonym_handling: true
+      personalization: false
+    conditionalLogic:
+      condition: "scale == 'enterprise'"
+      whenTrue:
+        config:
+          personalization: true
+          a_b_testing: true
+          analytics: "advanced"
+
+  # Analytics and monitoring
+  - type: "analytics"
+    variant: "vercel_analytics"
+    config:
+      ecommerce_tracking: true
+      conversion_funnels: true
+      customer_segmentation: true
+      revenue_reporting: true
+    optional: false
+
+  # Email service for transactional emails
+  - type: "email-service"
+    variant: "resend"
+    config:
+      transactional_emails: true
+      order_confirmations: true
+      shipping_notifications: true
+      abandoned_cart: true
+      newsletters: false
+    conditionalLogic:
+      condition: "scale == 'growing' OR scale == 'enterprise'"
+      whenTrue:
+        config:
+          newsletters: true
+          drip_campaigns: true
+          segmentation: true
+
+  # AI-powered features (optional based on scale)
+  - type: "ai-integration"
+    variant: "recommendation_engine"
+    config:
+      collaborative_filtering: true
+      content_based: true
+      real_time: true
+      a_b_testing: true
+    optional: true
+    conditionalLogic:
+      condition: "scale == 'growing' OR scale == 'enterprise'"
+      whenTrue:
+        optional: false
+
+  - type: "ai-integration"
+    variant: "customer_support"
+    config:
+      chatbot: true
+      order_assistance: true
+      product_questions: true
+      escalation_rules: true
+    optional: true
+    conditionalLogic:
+      condition: "scale == 'enterprise'"
+      whenTrue:
+        optional: false
+
+# Integrations based on business needs
+integrations:
+  - service: "stripe"
+    type: "payment-processor"
+    authentication: "api-key"
+    configuration:
+      webhooks: ["payment_intent.succeeded", "invoice.payment_failed"]
+      tax_calculation: true
+    environment: "all"
+
+  - service: "shippo"
+    type: "shipping"
+    authentication: "api-key"
+    configuration:
+      carriers: ["ups", "fedex", "usps"]
+      label_printing: true
+      tracking: true
+    conditionalLogic:
+      condition: "product_types includes 'physical_goods'"
+
+  - service: "mailchimp"
+    type: "email-marketing"
+    authentication: "api-key"
+    configuration:
+      audience_sync: true
+      abandoned_cart: true
+      product_recommendations: true
+    conditionalLogic:
+      condition: "scale == 'growing' OR scale == 'enterprise'"
+
+  # ERP integrations for enterprise
+  - service: "netsuite"
+    type: "erp"
+    authentication: "oauth2"
+    configuration:
+      inventory_sync: true
+      order_sync: true
+      customer_sync: true
+    conditionalLogic:
+      condition: "scale == 'enterprise'"
+
+# Deployment configuration
+deployment:
+  platform: "vercel"
+  regions: ["us-east-1", "eu-west-1", "ap-southeast-1"]
+  
+  environment:
+    - name: "production"
+      variables:
+        NODE_ENV: "production"
+        NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: "${STRIPE_PUBLISHABLE_KEY}"
+        COMMERCE_ENABLED: true
+      secrets:
+        - "STRIPE_SECRET_KEY"
+        - "DATABASE_URL"
+        - "CLERK_SECRET_KEY"
+        - "ALGOLIA_API_KEY"
+
+  scaling:
+    auto: true
+    minInstances: 2
+    maxInstances: 20
+    triggers:
+      - metric: "requests"
+        threshold: 2000
+        action: "scale-up"
+      - metric: "cpu"
+        threshold: 80
+        action: "scale-up"
+
+  monitoring:
+    logging:
+      level: "info"
+      structured: true
+      retention: "90d"
+      ecommerce_events: true
+    
+    metrics:
+      enabled: true
+      provider: "vercel"
+      customMetrics:
+        - "conversion_rate"
+        - "average_order_value"
+        - "cart_abandonment_rate"
+        - "page_load_time"
+        - "checkout_completion_rate"
+    
+    alerts:
+      - name: "payment_failures"
+        condition: "payment_error_rate > 2%"
+        severity: "high"
+        channels: ["email", "slack"]
+      - name: "high_cart_abandonment"
+        condition: "cart_abandonment_rate > 70%"
+        severity: "medium"
+        channels: ["email"]
+
+  security:
+    pci_compliance: true
+    ssl_certificates: true
+    fraud_detection: true
+    rate_limiting: true
+
+# Customization options
+customization:
+  ui:
+    framework: "nextjs"
+    styling: "tailwind"
+    componentLibrary: "shadcn"
+    theme:
+      primaryColor: "#059669"
+      secondaryColor: "#7C3AED"
+      accent: "#F59E0B"
+      neutral: "#6B7280"
+      background: "#FFFFFF"
+      surface: "#F9FAFB"
+    responsive: true
+    mobile_optimized: true
+    accessibility:
+      level: "AA"
+      features: ["screen-reader", "keyboard-navigation"]
+
+  features:
+    enabled:
+      - "product_catalog"
+      - "shopping_cart"
+      - "customer_accounts"
+      - "order_management"
+      - "inventory_tracking"
+      - "payment_processing"
+      - "shipping_integration"
+      - "analytics_dashboard"
+    
+    conditional:
+      - feature: "multi_vendor"
+        condition: "business_model == 'marketplace'"
+        includes: ["vendor_registration", "commission_tracking", "payout_management"]
+      
+      - feature: "subscription_billing"
+        condition: "business_model == 'subscription'"
+        includes: ["recurring_payments", "billing_cycles", "dunning_management"]
+      
+      - feature: "wholesale_features"
+        condition: "user_type == 'b2b-platform'"
+        includes: ["bulk_pricing", "quote_requests", "credit_terms"]
+
+  branding:
+    customizable: true
+    elements: ["logo", "colors", "fonts", "email_templates"]
+    store_name: true
+    custom_domain: true
+
+# Context-driven variations
+contextual_variations:
+  fashion_store:
+    description: "Fashion and apparel e-commerce"
+    modifications:
+      features:
+        additional: ["size_guides", "color_swatches", "style_recommendations", "virtual_try_on"]
+      modules:
+        - type: "ai-integration"
+          variant: "style_recommender"
+          config:
+            visual_search: true
+            trend_analysis: true
+            personal_styling: true
+
+  digital_marketplace:
+    description: "Digital products and downloads"
+    modifications:
+      product_types: ["digital_downloads"]
+      features:
+        additional: ["instant_downloads", "license_management", "drm_protection"]
+      payment_processing:
+        instant_delivery: true
+        refund_protection: true
+
+  b2b_wholesale:
+    description: "Business-to-business wholesale platform"
+    modifications:
+      user_type: "b2b-platform"
+      features:
+        additional: ["bulk_ordering", "custom_pricing", "approval_workflows", "credit_management"]
+      authentication:
+        business_verification: true
+        multi_user_accounts: true
+
+  subscription_box:
+    description: "Recurring subscription service"
+    modifications:
+      business_model: "subscription"
+      features:
+        additional: ["subscription_management", "billing_cycles", "pause_resume", "customization_preferences"]
+      payment_processing:
+        recurring_billing: true
+        dunning_management: true
+
+# Example prompts to guide users
+example_prompts:
+  - category: "Fashion"
+    prompt: "Create a fashion boutique website for my clothing brand selling women's apparel. I need size guides, color options, style recommendations, and integration with Instagram for social commerce."
+    
+  - category: "Digital Products"
+    prompt: "Build a marketplace for selling digital assets like templates, fonts, and graphics. Users should be able to instantly download after purchase with proper licensing."
+    
+  - category: "B2B Wholesale"
+    prompt: "Develop a wholesale platform for my manufacturing business to sell to retailers. I need bulk pricing, quote requests, credit terms, and integration with our ERP system."
+    
+  - category: "Subscription"
+    prompt: "Create a subscription box service for artisanal coffee. Customers should be able to customize their preferences, pause subscriptions, and manage billing."
+
+# Customization questions
+customization_questions:
+  - question: "What type of products will you be selling?"
+    type: "multiple_choice"
+    options: ["Physical goods", "Digital downloads", "Services/Bookings", "Subscriptions"]
+    impacts: ["payment_flow", "fulfillment_process", "inventory_management"]
+    
+  - question: "Who are your customers?"
+    type: "single_choice"
+    options: ["Consumers (B2C)", "Businesses (B2B)", "Both B2C and B2B"]
+    impacts: ["pricing_structure", "checkout_process", "account_features"]
+    
+  - question: "What's your business model?"
+    type: "single_choice"
+    options: ["Direct sales", "Marketplace/Multi-vendor", "Subscription service", "Dropshipping"]
+    impacts: ["vendor_management", "commission_structure", "fulfillment_workflow"]
+    
+  - question: "What's your expected scale?"
+    type: "single_choice"
+    options: ["Startup (0-1K orders/month)", "Growing (1K-10K orders/month)", "Enterprise (10K+ orders/month)"]
+    impacts: ["infrastructure_sizing", "feature_complexity", "integration_needs"]
+    
+  - question: "Do you need specific integrations?"
+    type: "multiple_choice"
+    options: ["Inventory management system", "Accounting software", "Email marketing platform", "Shipping providers", "Social media platforms"]
+    impacts: ["third_party_integrations", "data_sync_requirements"]
+
+  - question: "What analytics are important to you?"
+    type: "multiple_choice"
+    options: ["Sales revenue", "Customer behavior", "Inventory turnover", "Marketing ROI", "Conversion rates"]
+    impacts: ["analytics_dashboard", "reporting_features", "tracking_implementation"]

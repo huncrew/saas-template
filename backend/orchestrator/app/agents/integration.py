@@ -10,16 +10,92 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+from pathlib import Path
 from typing import Optional
 
 import yaml
 
 from .base import AIClient
 from .orchestrator import AgentOrchestrator, OrchestratorState, ProjectPhase
+from .prebuild_validator import validate_generated_files, ValidationResult
+from .validator_agent import ValidatorAgent, ValidationResult as ValidatorResult
+from .code_agent import FileChange
 
 
 # Cache for orchestrator state (in production, use Redis or DynamoDB)
 _STATE_CACHE: dict[str, dict] = {}
+
+
+async def run_compile_validation(
+    files: list[dict],
+    skeleton_path: Optional[str] = None,
+) -> dict:
+    """
+    Run REAL compile validation: npm ci && npm run build.
+
+    This catches all TypeScript errors, missing exports, type mismatches, etc.
+    Much more thorough than the lightweight Python-based prebuild validation.
+
+    Args:
+        files: List of file dicts with 'path' and 'content'
+        skeleton_path: Path to template skeleton (with package.json, etc.)
+
+    Returns:
+        dict with 'valid', 'errors', 'build_output'
+    """
+    # Convert to FileChange objects
+    file_changes = [
+        FileChange(
+            path=f.get("path", ""),
+            content=f.get("content", ""),
+            action="create"
+        )
+        for f in files
+        if f.get("path") and f.get("content")
+    ]
+
+    if not file_changes:
+        return {"valid": True, "errors": [], "build_output": ""}
+
+    validator = ValidatorAgent()
+    try:
+        state = validator.create_initial_state(
+            file_changes=file_changes,
+            skeleton_path=skeleton_path,
+            run_full_build=True,  # This is the key - runs npm ci && npm run build
+        )
+
+        result = await validator.run(state)
+
+        if result.success and result.data:
+            validation_result = result.data
+            errors = [
+                {
+                    "file": e.file,
+                    "line": e.line,
+                    "type": "COMPILE_ERROR",
+                    "message": e.message,
+                    "severity": e.severity,
+                }
+                for e in validation_result.errors
+            ]
+
+            return {
+                "valid": validation_result.is_valid,
+                "errors": errors,
+                "error_count": validation_result.error_count,
+                "warning_count": validation_result.warning_count,
+                "build_output": state.build_output,
+                "summary": validation_result.summary,
+            }
+        else:
+            return {
+                "valid": False,
+                "errors": [{"file": "system", "message": result.error or "Validation failed"}],
+                "build_output": "",
+            }
+    finally:
+        validator.cleanup()
 
 
 def _get_state(project_id: str) -> OrchestratorState:
@@ -126,8 +202,18 @@ async def process_chat_with_agents(
     _save_state(state)
 
     # Build response compatible with existing API
-    suggested_action = response.suggested_action
-    if auto_preview and response.readiness_score >= 80:
+    # Map agent actions to API-expected values
+    action_map = {
+        "continue_chat": "ask_followups",
+        "generate_spec": "build_preview",  # Spec was generated, proceed to build
+        "build_preview": "build_preview",
+    }
+    suggested_action = action_map.get(response.suggested_action, "ask_followups")
+
+    # If spec exists and readiness is decent, suggest build (be aggressive)
+    if state.spec_yaml and response.readiness_score >= 65:
+        suggested_action = "build_preview"
+    elif auto_preview and response.readiness_score >= 70:
         suggested_action = "build_preview"
 
     # Generate spec markdown for backwards compatibility
@@ -156,6 +242,7 @@ async def generate_code_with_agents(
     skeleton_manifest: list[str],
     templates_dir,
     modules_dir,
+    additional_instructions: str = "",
 ) -> dict:
     """
     Generate code using the agent framework.
@@ -194,12 +281,48 @@ async def generate_code_with_agents(
         user_id=user_id,
         project_name=project_name,
         template_id=template_id,
+        additional_instructions=additional_instructions,
     )
 
     # Save state
     _save_state(state)
 
     if response.success:
+        # Run pre-build validation BEFORE considering it successful
+        files_for_validation = [
+            {"path": f.path if hasattr(f, 'path') else f.get('path', ''),
+             "content": f.content if hasattr(f, 'content') else f.get('content', '')}
+            for f in state.file_changes
+        ]
+        validation_result = validate_generated_files(files_for_validation)
+
+        if not validation_result.valid:
+            # Pre-build validation failed - return errors for retry
+            error_details = []
+            for err in validation_result.errors[:5]:
+                error_details.append(f"[{err.error_type}] {err.file_path}:{err.line_number or '?'} - {err.message}")
+
+            return {
+                "success": False,
+                "error": "Pre-build validation failed",
+                "validation_errors": [
+                    {
+                        "file": e.file_path,
+                        "line": e.line_number,
+                        "type": e.error_type,
+                        "message": e.message,
+                        "suggestion": e.suggestion,
+                    }
+                    for e in validation_result.errors
+                ],
+                "files": state.file_changes,
+                "files_count": response.files_generated,
+                "validated": False,
+                "prebuild_failed": True,
+                "prebuild_error_string": validation_result.to_error_string(),
+                "phase": state.phase.value,
+            }
+
         # Get the unified diff for CodeBuild
         patch_diff = orchestrator.get_patch_diff(state)
 
@@ -208,8 +331,11 @@ async def generate_code_with_agents(
             "files": state.file_changes,
             "files_count": response.files_generated,
             "validated": response.validation_passed,
+            "security_passed": response.security_passed,
+            "security_findings": response.security_findings,
             "patch_diff": patch_diff,
             "phase": state.phase.value,
+            "prebuild_passed": True,
         }
     else:
         return {
@@ -217,6 +343,8 @@ async def generate_code_with_agents(
             "error": "; ".join(response.errors),
             "files": state.file_changes,
             "validated": False,
+            "security_passed": False,
+            "security_findings": [],
             "phase": state.phase.value,
         }
 

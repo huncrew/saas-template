@@ -1,0 +1,20 @@
+module:
+  id: auth-clerk
+  name: "Auth: Clerk"
+  description: "Adds Clerk authentication plumbing (sign-in/up UI, client-side user id)."
+
+patches:
+  - patches/001-auth-clerk.diff
+
+inputs:
+  - name: clerk_publishable_key
+    type: string
+    required: false
+    description: "Public Clerk publishable key (NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY)."
+
+outputs:
+  - name: user_id_source
+    type: string
+    value: "clerk"
+
+

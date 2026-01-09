@@ -12,6 +12,7 @@ export async function POST(
   const body = await req.json().catch(() => ({}));
 
   // If orchestrator isn't configured, fall back to a deterministic local planner response.
+  console.log("🔍 Orchestrator base URL:", base);
   if (!base) {
     const msg = String(body?.message || "").trim();
     if (!msg) return jsonErr("message is required", 400);
@@ -26,11 +27,11 @@ export async function POST(
           "Should we prioritize speed (minimal) or completeness (roles, audit log, admin)?",
         ];
     const plan =
-      "Plan:\n- Confirm template scope (V1: saas-crud)\n- Generate/validate a change spec\n- Run tests + build\n- Publish a hosted preview URL\n";
+      "Plan:\n- Turn chat into a spec\n- Generate a patch\n- Run preview build\n- Publish preview URL\n";
     return jsonOk({
       assistant: {
         role: "assistant",
-        content: wantsBuild ? `Got it — starting a preview build.\n\n${plan}` : "Before we build, a couple quick questions:",
+        content: wantsBuild ? `Perfect! Let's build a preview.` : `Got it! I'll help you build that. Let me ask a few questions first:`,
       },
       followups,
       suggested_action: wantsBuild ? "build_preview" : "ask_followups",
@@ -63,11 +64,11 @@ export async function POST(
             "Should we prioritize speed (minimal) or completeness (roles, audit log, admin)?",
           ];
       const plan =
-        "Plan:\n- Confirm template scope (V1: saas-crud)\n- Generate/validate a change spec\n- Run tests + build\n- Publish a hosted preview URL\n";
+        "Plan:\n- Turn chat into a spec\n- Generate a patch\n- Run preview build\n- Publish preview URL\n";
       return jsonOk({
         assistant: {
-          role: "assistant",
-          content: wantsBuild ? `Got it — starting a preview build.\n\n${plan}` : "Before we build, a couple quick questions:",
+          role: "assistant", 
+          content: wantsBuild ? `Perfect! Let's build a preview.` : `Got it! I'll help you build that. Let me ask a few questions first:`,
         },
         followups,
         suggested_action: wantsBuild ? "build_preview" : "ask_followups",

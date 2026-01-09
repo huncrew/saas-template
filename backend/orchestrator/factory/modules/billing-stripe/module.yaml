@@ -1,0 +1,20 @@
+module:
+  id: billing-stripe
+  name: "Billing: Stripe"
+  description: "Adds Stripe checkout + subscription status hooks via existing backend Lambdas."
+
+patches:
+  - patches/001-billing-stripe.diff
+
+inputs:
+  - name: stripe_publishable_key
+    type: string
+    required: false
+    description: "Stripe publishable key (NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY)."
+
+outputs:
+  - name: billing_provider
+    type: string
+    value: "stripe"
+
+

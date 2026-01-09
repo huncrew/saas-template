@@ -137,7 +137,7 @@ class AIClient:
         return self._extract_json(response)
 
     def _extract_json(self, text: str) -> dict:
-        """Extract JSON from response, handling code fences."""
+        """Extract JSON from response, handling code fences and malformed JSON."""
         t = (text or "").strip()
         if not t:
             return {}
@@ -160,11 +160,25 @@ class AIClient:
                 t = t[start:end].strip()
 
         if t.startswith("{") and "}" in t:
-            # Find the matching closing brace
+            # Try parsing as-is first
             try:
                 return json.loads(t)
             except json.JSONDecodeError:
-                # Try to find valid JSON within the text
+                pass
+
+            # LLMs often return JSON with literal newlines inside strings
+            # Try to fix by escaping newlines within string values
+            try:
+                import re
+                # Replace literal newlines that are inside strings with escaped newlines
+                # This regex finds strings and escapes newlines within them
+                fixed = re.sub(
+                    r'("(?:[^"\\]|\\.)*")',
+                    lambda m: m.group(0).replace('\n', '\\n').replace('\r', '\\r'),
+                    t
+                )
+                return json.loads(fixed)
+            except (json.JSONDecodeError, Exception):
                 pass
 
         return {}

@@ -222,3 +222,4 @@ rm -f /tmp/route53-change.json
 
 echo "Domain migration requested. Amplify will finish cert/verification automatically if needed."
 
+

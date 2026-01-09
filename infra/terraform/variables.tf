@@ -42,6 +42,8 @@ variable "allowed_origins" {
   type        = list(string)
   default = [
     "http://localhost:3000",
+    "https://oasify.ai",
+    "https://www.oasify.ai",
   ]
 }
 
@@ -129,6 +131,97 @@ variable "factory_orchestrator_source_key" {
   description = "S3 key (in the artifacts bucket) for a zipped orchestrator source archive used by CodeBuild."
   type        = string
   default     = "orchestrator/source.zip"
+}
+
+variable "factory_frontend_desired_count" {
+  description = "Desired number of Factory frontend tasks."
+  type        = number
+  default     = 1
+}
+
+variable "factory_frontend_image" {
+  description = "Full image URI for the frontend container. If empty, uses the created ECR repo with :latest."
+  type        = string
+  default     = ""
+}
+
+variable "factory_frontend_build_enabled" {
+  description = "When true, provisions a CodeBuild project that builds and pushes the frontend container image to ECR."
+  type        = bool
+  default     = true
+}
+
+variable "factory_frontend_source_key" {
+  description = "S3 key (in the artifacts bucket) for a zipped frontend source archive used by CodeBuild."
+  type        = string
+  default     = "frontend/source.zip"
+}
+
+variable "factory_template_source_key" {
+  description = "S3 key (in the artifacts bucket) for the project template zip used by preview/deploy builds."
+  type        = string
+  default     = "templates/base-skeleton.zip"
+}
+
+variable "factory_domain_name" {
+  description = "Primary domain name for the Factory frontend (apex)."
+  type        = string
+  default     = "oasify.ai"
+}
+
+variable "factory_enable_www" {
+  description = "When true, also serve www.<domain> from the Factory frontend."
+  type        = bool
+  default     = true
+}
+
+variable "factory_orchestrator_subdomain" {
+  description = "Subdomain prefix for the orchestrator (e.g. 'orchestrator' => orchestrator.<domain>)."
+  type        = string
+  default     = "orchestrator"
+}
+
+variable "factory_temp_frontend_subdomain" {
+  description = "Temporary subdomain for the new Factory frontend during cutover (e.g. 'builder' => builder.<domain>)."
+  type        = string
+  default     = "builder"
+}
+
+variable "factory_cutover_enabled" {
+  description = "When true, points apex/www to the ALB (replaces current site). Keep false until frontend is healthy."
+  type        = bool
+  default     = false
+}
+
+variable "factory_hosted_zone_id" {
+  description = "Optional Route53 hosted zone ID for the domain. If empty, Terraform looks up by name."
+  type        = string
+  default     = ""
+}
+
+variable "clerk_publishable_key" {
+  description = "Clerk publishable key (NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY) for the frontend."
+  type        = string
+  default     = ""
+}
+
+variable "clerk_secret_key" {
+  description = "Clerk secret key (CLERK_SECRET_KEY) for the frontend."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "openai_api_key_ssm_arn" {
+  description = "Optional SSM Parameter ARN (SecureString) that stores OPENAI_API_KEY. If set, it will be injected into the frontend ECS task as a secret."
+  type        = string
+  default     = ""
+}
+
+variable "openai_api_key_ssm_name" {
+  description = "Optional SSM parameter name (SecureString) for OPENAI_API_KEY. If set, it can be injected into CodeBuild as a PARAMETER_STORE env var."
+  type        = string
+  default     = ""
 }
 
 variable "factory_vpc_id" {

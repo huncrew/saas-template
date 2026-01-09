@@ -1,0 +1,47 @@
+template:
+  id: saas-crud
+  name: "Base Skeleton (serverless-first)"
+  description: >
+    Minimal runnable SaaS skeleton. Static Next.js export (S3+CloudFront) calling
+    API Gateway + Lambda backend. Intended to be composed via modules.
+
+# This schema is what the LLM should output as spec_yaml.
+spec_schema:
+  base_template:
+    type: string
+    description: "Base skeleton template id (usually saas-crud)."
+  modules:
+    type: array
+    description: "Ordered list of module ids (and optional config) to apply to the base skeleton."
+    items:
+      type: object
+      properties:
+        id:
+          type: string
+        config:
+          type: object
+      required: [id]
+  app:
+    type: object
+    description: "High-level product description and UX goals."
+  backend_apis:
+    type: array
+    description: "Backend API Gateway + Lambda endpoints to add/modify."
+  data_entities:
+    type: array
+    description: "DynamoDB-backed entities (keys + attributes)."
+  acceptance_criteria:
+    type: array
+    description: "Concrete checks to consider the build successful."
+
+guidance:
+  constraints:
+    - "Keep tech deterministic: React/Next.js frontend (static export), Python Lambdas, Terraform."
+    - "Do NOT introduce Next.js API routes or middleware in generated apps."
+    - "Use NEXT_PUBLIC_API_BASE_URL for browser -> API Gateway calls."
+  composition:
+    - "Prefer selecting modules over bespoke code."
+    - "If custom glue code is needed, keep it small and isolated."
+
+
+

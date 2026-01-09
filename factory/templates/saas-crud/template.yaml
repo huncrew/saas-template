@@ -1,0 +1,123 @@
+template:
+  id: saas-crud
+  name: SaaS CRUD Starter
+  description: >
+    Production-ready SaaS foundation with Clerk auth, multi-tenant CRUD, Stripe billing hooks,
+    and Terraform-managed serverless backend (API Gateway + Lambda + DynamoDB).
+  tech_stack:
+    frontend: nextjs15 + clerk + tailwind
+    backend: python311 lambda (fastapi-style handlers)
+    infra: terraform (api gateway, lambda, dynamodb, cognito optional)
+  repositories:
+    frontend: frontend/
+    backend: backend/
+    infra: infra/terraform/
+  reusable_components:
+    - id: auth-shell
+      description: Clerk provider + protected routes + dev bypass banner.
+      files:
+        - frontend/src/app/layout.tsx
+        - frontend/src/middleware.ts
+    - id: dashboard-shell
+      description: Sidebar + top nav + project/workspace pages with shadcn UI.
+      files:
+        - frontend/src/app/projects/page.tsx
+        - frontend/src/app/projects/[projectId]/page.tsx
+        - frontend/src/components/navigation.tsx
+    - id: api-gateway-lambdas
+      description: Python Lambda handlers for /ai/*, /stripe/*, /subscription/* routes.
+      files:
+        - backend/lambdas/api/**
+    - id: orchestrator
+      description: FastAPI service that manages projects/builds and triggers CodeBuild.
+      files:
+        - backend/orchestrator/**
+    - id: terraform
+      description: Core Terraform stack for API Gateway, Lambda, DynamoDB, S3 uploads, Cognito, and CodeBuild.
+      files:
+        - infra/terraform/**
+
+spec_schema:
+  summary: >
+    YAML spec describing goal, target users, UX modules, data entities, backend APIs, integrations,
+    and infra overrides. Used by the orchestrator to generate diffs deterministically.
+  required_sections:
+    - goal
+    - target_users
+    - key_use_cases
+    - ux_modules
+    - data_entities
+    - backend_apis
+    - automations
+    - integrations
+    - infra_overrides
+    - acceptance_criteria
+  field_details:
+    goal: High-level statement of what the build should deliver.
+    target_users: Bullet list of primary persona(s).
+    key_use_cases: Ordered list of workflows the UI must support.
+    ux_modules: Structured list describing each screen/module with components + states.
+    data_entities: Table of entities with fields + relationships (persisted in DynamoDB or other stores).
+    backend_apis: REST endpoints or Lambda handlers required by the UX modules.
+    automations: Background tasks, queues, or build-time steps.
+    integrations: External services (Stripe, email, LLM providers) and required secrets.
+    infra_overrides: Any Terraform/env tweaks (new buckets, feature flags, env vars).
+    acceptance_criteria: Bullet list of verifiable checks before marking the build complete.
+  output_format: |
+    goal: |
+      ...
+    target_users:
+      - ...
+    key_use_cases:
+      - title: ...
+        description: ...
+    ux_modules:
+      - id: dashboard
+        description: ...
+        components:
+          - ...
+        states:
+          - ...
+    data_entities:
+      - name: Account
+        keys:
+          - field: account_id
+            type: string
+            notes: PK (DynamoDB partition)
+        attributes:
+          - field: name
+            type: string
+            notes: Display name
+    backend_apis:
+      - route: GET /api/accounts
+        handler: backend/lambdas/api/accounts/list.py
+        auth: clerk
+        notes: returns paginated accounts
+    automations:
+      - name: nightly-usage-rollup
+        description: Summarize usage metrics
+    integrations:
+      - name: stripe
+        required_keys:
+          - STRIPE_SECRET_KEY
+    infra_overrides:
+      terraform:
+        - add cloudwatch dashboard for API 5XX
+      env:
+        NEXT_PUBLIC_FEATURE_X: "1"
+    acceptance_criteria:
+      - Users can invite teammates
+      - Billing page shows current plan and usage
+
+guidance:
+  prompting_notes: |
+    - Always reference the reusable components above when proposing changes.
+    - Assume frontend lives in Next.js app router with Clerk; SSR APIs are not allowed.
+    - Backend code must use existing Lambda helpers (backend/lambdas/common/).
+    - Prefer DynamoDB single-table patterns; note partition/sort keys explicitly.
+    - All secrets/integrations should map to Terraform variables or SSM parameters.
+  default_env:
+    NEXT_PUBLIC_FACTORY_DEV_NO_AUTH: "0"
+    FACTORY_DEV_NO_AUTH: "0"
+    NEXT_PUBLIC_API_BASE_URL: "${module.http_api.api_endpoint}"
+    NEXT_PUBLIC_ORCHESTRATOR_API_URL: "https://${local.factory_orchestrator_fqdn}"

@@ -26,6 +26,10 @@ class Project(BaseModel):
     created_at: str
     last_build_id: Optional[str] = None
     status: Optional[str] = "active"
+    # Latest generated spec from chat (used to generate patches/builds).
+    spec_markdown: Optional[str] = None
+    spec_updated_at: Optional[str] = None
+    spec_yaml: Optional[str] = None
 
 
 class BuildArtifacts(BaseModel):
@@ -62,6 +66,8 @@ class ChatMessage(BaseModel):
 
 class ProjectChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=10_000)
+    # Most recent chat transcript (user + assistant turns) so the orchestrator can keep context.
+    history: list[ChatMessage] = Field(default_factory=list)
     # If true, the UI intends to auto-trigger preview once the assistant says it's ready.
     auto_preview: bool = False
 
@@ -72,6 +78,4 @@ class ProjectChatResponse(BaseModel):
     followups: list[str] = Field(default_factory=list)
     suggested_action: ChatSuggestedAction = "noop"
     plan: Optional[str] = None
-
-
 

@@ -24,6 +24,7 @@ from .chat_agent import ChatAgent, ChatState, ChatMessage
 from .spec_agent import SpecGeneratorAgent, SpecState
 from .code_agent import CodeGeneratorAgent, CodeGenState, FileChange
 from .validator_agent import ValidatorAgent, ValidatorState
+from .security_agent import SecurityAgent, run_security_scan, SecurityFinding
 
 
 class ProjectPhase(Enum):
@@ -32,6 +33,7 @@ class ProjectPhase(Enum):
     SPEC_READY = "spec_ready"  # Spec generated, awaiting approval
     GENERATING = "generating"  # Code generation in progress
     VALIDATING = "validating"  # Validation in progress
+    SECURITY_SCANNING = "security_scanning"  # Security scan in progress
     VALIDATED = "validated"  # Ready for CodeBuild
     BUILDING = "building"  # CodeBuild running
     COMPLETED = "completed"  # Build finished
@@ -65,6 +67,10 @@ class OrchestratorState:
     validation_errors: list[dict] = field(default_factory=list)
     is_validated: bool = False
 
+    # Security state
+    security_findings: list[dict] = field(default_factory=list)
+    security_passed: bool = False
+
     # Build state
     build_id: Optional[str] = None
 
@@ -87,6 +93,8 @@ class OrchestratorState:
             "generation_attempts": self.generation_attempts,
             "validation_errors": self.validation_errors,
             "is_validated": self.is_validated,
+            "security_findings": self.security_findings,
+            "security_passed": self.security_passed,
             "build_id": self.build_id,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
@@ -107,6 +115,8 @@ class OrchestratorState:
         state.generation_attempts = data.get("generation_attempts", 0)
         state.validation_errors = data.get("validation_errors", [])
         state.is_validated = data.get("is_validated", False)
+        state.security_findings = data.get("security_findings", [])
+        state.security_passed = data.get("security_passed", False)
         state.build_id = data.get("build_id")
         state.created_at = data.get("created_at", state.created_at)
         state.updated_at = data.get("updated_at", state.updated_at)
@@ -135,6 +145,8 @@ class GenerationResponse:
     phase: ProjectPhase
     files_generated: int
     validation_passed: bool
+    security_passed: bool
+    security_findings: list[dict]
     errors: list[str]
     ready_for_build: bool
 
@@ -161,6 +173,7 @@ class AgentOrchestrator:
         self.spec_agent = SpecGeneratorAgent(self.ai)
         self.code_agent = CodeGeneratorAgent(self.ai)
         self.validator_agent = ValidatorAgent(self.ai)
+        self.security_agent = SecurityAgent()
 
     async def process_chat(
         self,
@@ -217,12 +230,17 @@ class AgentOrchestrator:
         chat_result = result.data
 
         # Check if we should auto-generate spec
+        # Be aggressive: at 70%+ readiness, always generate spec
+        # At 60-69%, generate if agent suggests it
         spec_preview = None
-        if (
+        should_generate_spec = (
             auto_generate_spec
-            and chat_result.readiness_score >= 80
-            and chat_result.suggested_action in ("generate_spec", "build_preview")
-        ):
+            and (
+                chat_result.readiness_score >= 70  # High readiness = auto generate
+                or (chat_result.readiness_score >= 60 and chat_result.suggested_action in ("generate_spec", "build_preview"))
+            )
+        )
+        if should_generate_spec:
             try:
                 spec_result = await self._generate_spec(state, user_id, project_name, template_id)
                 if spec_result:
@@ -283,6 +301,7 @@ class AgentOrchestrator:
         project_name: str = "",
         template_id: str = "",
         max_validation_attempts: int = 3,
+        additional_instructions: str = "",
     ) -> tuple[GenerationResponse, OrchestratorState]:
         """
         Generate code from the spec with validation retry loop.
@@ -293,6 +312,8 @@ class AgentOrchestrator:
                 phase=state.phase,
                 files_generated=0,
                 validation_passed=False,
+                security_passed=False,
+                security_findings=[],
                 errors=["No spec available. Complete chat first."],
                 ready_for_build=False,
             ), state
@@ -300,13 +321,14 @@ class AgentOrchestrator:
         state.phase = ProjectPhase.GENERATING
         state.update()
 
-        # Initialize code gen state
+        # Initialize code gen state with any additional instructions (e.g., from previous failures)
         code_state = self.code_agent.create_initial_state(
             spec_yaml=state.spec_yaml,
             project_name=project_name,
             template_id=template_id,
             skeleton_manifest=self.skeleton_manifest,
             template_context=self.template_context,
+            additional_instructions=additional_instructions,
         )
 
         for attempt in range(max_validation_attempts):
@@ -334,12 +356,28 @@ class AgentOrchestrator:
 
             if val_result.success and val_result.data:
                 if val_result.data.is_valid:
-                    # Success!
+                    # Validation passed - now run security scan
                     state.file_changes = [
                         {"path": fc.path, "action": fc.action, "content": fc.content}
                         for fc in gen_result.data.file_changes
                     ]
                     state.is_validated = True
+
+                    # Run security scan
+                    state.phase = ProjectPhase.SECURITY_SCANNING
+                    state.update()
+
+                    security_files = [
+                        {"path": fc.path, "content": fc.content}
+                        for fc in gen_result.data.file_changes
+                    ]
+                    security_result = run_security_scan(security_files)
+
+                    # Store security findings
+                    state.security_findings = security_result.get("findings", [])
+                    state.security_passed = security_result.get("passed", False)
+
+                    # Mark as validated (security is informational, doesn't block)
                     state.phase = ProjectPhase.VALIDATED
                     state.update()
 
@@ -348,6 +386,8 @@ class AgentOrchestrator:
                         phase=state.phase,
                         files_generated=len(gen_result.data.file_changes),
                         validation_passed=True,
+                        security_passed=state.security_passed,
+                        security_findings=state.security_findings,
                         errors=[],
                         ready_for_build=True,
                     ), state
@@ -374,6 +414,8 @@ class AgentOrchestrator:
             phase=state.phase,
             files_generated=len(code_state.file_changes),
             validation_passed=False,
+            security_passed=False,
+            security_findings=[],
             errors=[f"Failed after {max_validation_attempts} attempts"] + state.errors[-3:],
             ready_for_build=False,
         ), state
@@ -401,24 +443,33 @@ class AgentOrchestrator:
             content = fc["content"]
             action = fc["action"]
 
+            # Normalize content - remove trailing whitespace and ensure single trailing newline
+            content = content.rstrip() + "\n"
+            lines = content.split("\n")
+            # Remove empty last element from split (since we added \n)
+            if lines and lines[-1] == "":
+                lines = lines[:-1]
+
+            line_count = len(lines)
+
             if action == "create":
                 diff_parts.append(f"diff --git a/{path} b/{path}")
                 diff_parts.append("new file mode 100644")
-                diff_parts.append(f"--- /dev/null")
+                diff_parts.append("--- /dev/null")
                 diff_parts.append(f"+++ b/{path}")
-                lines = content.split("\n")
-                diff_parts.append(f"@@ -0,0 +1,{len(lines)} @@")
+                diff_parts.append(f"@@ -0,0 +1,{line_count} @@")
                 for line in lines:
                     diff_parts.append(f"+{line}")
             elif action == "modify":
-                # For modify, we'd need the original content to create a proper diff
-                # For now, treat as full replacement
+                # For modify without original content, we create the file fresh
+                # This works because git apply with --allow-empty handles it
                 diff_parts.append(f"diff --git a/{path} b/{path}")
-                diff_parts.append(f"--- a/{path}")
+                diff_parts.append("new file mode 100644")
+                diff_parts.append("--- /dev/null")
                 diff_parts.append(f"+++ b/{path}")
-                lines = content.split("\n")
-                diff_parts.append(f"@@ -1,1 +1,{len(lines)} @@")
+                diff_parts.append(f"@@ -0,0 +1,{line_count} @@")
                 for line in lines:
                     diff_parts.append(f"+{line}")
 
-        return "\n".join(diff_parts)
+        # Ensure patch ends with newline
+        return "\n".join(diff_parts) + "\n"

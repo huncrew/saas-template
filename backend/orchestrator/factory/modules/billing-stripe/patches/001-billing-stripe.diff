@@ -1,0 +1,46 @@
+diff --git a/frontend/src/components/checkout-form.tsx b/frontend/src/components/checkout-form.tsx
+index ce7c539..040cc48 100644
+--- a/frontend/src/components/checkout-form.tsx
++++ b/frontend/src/components/checkout-form.tsx
+@@ -9,7 +9,8 @@ import {
+ import { apiClient } from "@/lib/api";
+ import { toast } from "sonner";
+ 
+-const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!);
++const stripePublishableKey = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
++const stripePromise = stripePublishableKey ? loadStripe(stripePublishableKey) : null;
+ 
+ interface CheckoutFormProps {
+   priceId: string;
+@@ -19,6 +20,19 @@ interface CheckoutFormProps {
+ export function CheckoutForm({ priceId, userId }: CheckoutFormProps) {
+   const [isLoading, setIsLoading] = useState(false);
+ 
++  if (!stripePublishableKey || !stripePromise) {
++    return (
++      <div className="max-w-2xl mx-auto p-6 rounded-xl border border-amber-200 bg-amber-50">
++        <div className="text-sm font-semibold text-amber-900">module: billing-stripe enabled</div>
++        <div className="mt-2 text-sm text-amber-800">
++          Stripe is not configured yet. Set{" "}
++          <code className="font-mono">NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY</code> to enable checkout.
++        </div>
++      </div>
++    );
++  }
++
++
+   const fetchClientSecret = useCallback(async () => {
+     setIsLoading(true);
+     try {
+diff --git a/frontend/src/components/pricing-card.tsx b/frontend/src/components/pricing-card.tsx
+index 66baedf..600070a 100644
+--- a/frontend/src/components/pricing-card.tsx
++++ b/frontend/src/components/pricing-card.tsx
+@@ -44,6 +44,7 @@ export function PricingCard({ plan, userId, currentPlan }: PricingCardProps) {
+       
+       <CardHeader className="text-center">
+         <CardTitle className="text-2xl">{plan.name}</CardTitle>
++        <div className="mt-2 text-xs font-mono text-gray-500">module: billing-stripe enabled</div>
+         <div className="text-4xl font-bold text-gray-900 mt-4">
+           {plan.price === 0 ? (
+             'Custom'

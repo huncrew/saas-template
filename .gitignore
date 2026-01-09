@@ -54,3 +54,8 @@ infra/terraform/.terraform/
 
 # AI Context (track for collaboration)
 !.ai-context/
+
+# Template node_modules
+template_src/**/node_modules/
+template_src/**/.next/
+*.log

@@ -4,6 +4,8 @@ import os
 from abc import ABC, abstractmethod
 from typing import List, Optional, Tuple
 
+from .models import ChatRole
+
 try:
     import boto3  # type: ignore
 except Exception:  # pragma: no cover
@@ -35,6 +37,12 @@ class Repo(ABC):
     @abstractmethod
     def update_build(self, user_id: str, build: Build) -> None: ...
 
+    @abstractmethod
+    def append_chat_message(self, user_id: str, project_id: str, role: ChatRole, content: str) -> None: ...
+
+    @abstractmethod
+    def list_chat_messages(self, user_id: str, project_id: str, limit: int = 50) -> list[dict]: ...
+
 
 class InMemoryRepo(Repo):
     def list_projects(self, user_id: str) -> List[Project]:
@@ -58,6 +66,12 @@ class InMemoryRepo(Repo):
     def update_build(self, user_id: str, build: Build) -> None:
         STORE.update_build(user_id, build)
 
+    def append_chat_message(self, user_id: str, project_id: str, role: ChatRole, content: str) -> None:
+        STORE.append_chat_message(user_id, project_id, role, content)
+
+    def list_chat_messages(self, user_id: str, project_id: str, limit: int = 50) -> list[dict]:
+        return STORE.list_chat_messages(user_id, project_id, limit=limit)
+
 
 class DynamoRepo(Repo):
     """
@@ -77,12 +91,14 @@ class DynamoRepo(Repo):
             raise RuntimeError("boto3 not available")
         projects_table = os.getenv("FACTORY_PROJECTS_TABLE", "").strip()
         builds_table = os.getenv("FACTORY_BUILDS_TABLE", "").strip()
-        if not projects_table or not builds_table:
-            raise RuntimeError("Missing FACTORY_PROJECTS_TABLE / FACTORY_BUILDS_TABLE env vars")
+        chats_table = os.getenv("FACTORY_CHATS_TABLE", "").strip()
+        if not projects_table or not builds_table or not chats_table:
+            raise RuntimeError("Missing FACTORY_PROJECTS_TABLE / FACTORY_BUILDS_TABLE / FACTORY_CHATS_TABLE env vars")
 
         dynamodb = boto3.resource("dynamodb")
         self.projects = dynamodb.Table(projects_table)
         self.builds = dynamodb.Table(builds_table)
+        self.chats = dynamodb.Table(chats_table)
 
     @staticmethod
     def _p_pk(user_id: str) -> str:
@@ -99,6 +115,14 @@ class DynamoRepo(Repo):
     @staticmethod
     def _b_sk(build_id: str) -> str:
         return f"BUILD#{build_id}"
+
+    @staticmethod
+    def _c_pk(user_id: str, project_id: str) -> str:
+        return f"USER#{user_id}#PROJ#{project_id}"
+
+    @staticmethod
+    def _c_sk(created_at: str, msg_id: str) -> str:
+        return f"TS#{created_at}#{msg_id}"
 
     def list_projects(self, user_id: str) -> List[Project]:
         resp = self.projects.query(
@@ -147,6 +171,48 @@ class DynamoRepo(Repo):
         item = {"pk": self._b_pk(user_id), "sk": self._b_sk(build.build_id), **build.model_dump()}
         self.builds.put_item(Item=item)
 
+    def append_chat_message(self, user_id: str, project_id: str, role: ChatRole, content: str) -> None:
+        import uuid
+        msg_id = f"msg_{uuid.uuid4().hex[:12]}"
+        created_at = now_iso()
+        ttl_seconds = int(os.getenv("FACTORY_CHATS_TTL_SECONDS", "2592000"))  # 30 days default
+        # Convert ISO to epoch-ish is annoying; store ttl as now+ttl (seconds since epoch).
+        # We can approximate using datetime parsing without adding deps by using pydantic/dateutil; keep simple:
+        import datetime
+        dt = datetime.datetime.now(datetime.timezone.utc)
+        ttl = int(dt.timestamp()) + ttl_seconds
+        item = {
+            "pk": self._c_pk(user_id, project_id),
+            "sk": self._c_sk(created_at, msg_id),
+            "message_id": msg_id,
+            "project_id": project_id,
+            "role": role,
+            "content": content,
+            "created_at": created_at,
+            "ttl": ttl,
+        }
+        self.chats.put_item(Item=item)
+
+    def list_chat_messages(self, user_id: str, project_id: str, limit: int = 50) -> list[dict]:
+        resp = self.chats.query(
+            KeyConditionExpression="pk = :pk AND begins_with(sk, :prefix)",
+            ExpressionAttributeValues={":pk": self._c_pk(user_id, project_id), ":prefix": "TS#"},
+            Limit=max(1, min(int(limit), 200)),
+            ScanIndexForward=False,
+        )
+        items = resp.get("Items") or []
+        # Return oldest->newest for prompt readability
+        items.sort(key=lambda i: i.get("sk", ""))
+        return [
+            {
+                "message_id": i.get("message_id"),
+                "role": i.get("role"),
+                "content": i.get("content"),
+                "created_at": i.get("created_at"),
+            }
+            for i in items
+        ]
+
 
 def get_repo() -> Repo:
     mode = os.getenv("FACTORY_REPO_MODE", "").strip().lower()
@@ -161,6 +227,7 @@ def get_repo() -> Repo:
             return InMemoryRepo()
 
     return InMemoryRepo()
+
 
 
 

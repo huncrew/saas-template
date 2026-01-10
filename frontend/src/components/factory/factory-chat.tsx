@@ -16,6 +16,13 @@ type Message = {
   createdAt: number;
 };
 
+type PersistedChatMessage = {
+  message_id?: string;
+  role?: "user" | "assistant";
+  content?: string;
+  created_at?: string;
+};
+
 const SUGGESTIONS = [
   "Create a SaaS CRUD app with teams and roles",
   "Add an audit log and admin panel",
@@ -69,8 +76,8 @@ export function FactoryChat({
         const msgs = body?.messages;
         if (!res.ok || !Array.isArray(msgs)) return;
 
-        const hydrated: Message[] = msgs
-          .map((m: any) => ({
+        const hydrated: Message[] = (msgs as PersistedChatMessage[])
+          .map((m) => ({
             id: String(m?.message_id || `m_${Math.random().toString(16).slice(2)}`),
             role: m?.role === "assistant" ? "assistant" : "user",
             content: String(m?.content || ""),

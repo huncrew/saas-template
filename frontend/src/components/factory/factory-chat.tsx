@@ -23,6 +23,10 @@ type PersistedChatMessage = {
   created_at?: string;
 };
 
+function normalizeRole(role: unknown): Message["role"] {
+  return role === "assistant" ? "assistant" : "user";
+}
+
 const SUGGESTIONS = [
   "Create a SaaS CRUD app with teams and roles",
   "Add an audit log and admin panel",
@@ -79,7 +83,7 @@ export function FactoryChat({
         const hydrated: Message[] = (msgs as PersistedChatMessage[])
           .map((m) => ({
             id: String(m?.message_id || `m_${Math.random().toString(16).slice(2)}`),
-            role: m?.role === "assistant" ? "assistant" : "user",
+            role: normalizeRole(m?.role),
             content: String(m?.content || ""),
             createdAt: m?.created_at ? Date.parse(m.created_at) : Date.now(),
           }))

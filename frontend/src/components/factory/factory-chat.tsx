@@ -186,24 +186,9 @@ export function FactoryChat({
   }
 
   return (
-    <div className="h-full flex flex-col">
-      <div className="h-12 sm:h-14 px-3 sm:px-4 flex items-center justify-between border-b border-gray-100 bg-white/95 backdrop-blur-sm gap-2">
-        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-          <div className="h-8 w-8 sm:h-9 sm:w-9 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white flex items-center justify-center shadow-sm flex-shrink-0">
-            <Bot className="h-4 w-4 sm:h-5 sm:w-5" />
-          </div>
-          <div className="min-w-0">
-            <div className="text-xs sm:text-sm font-semibold text-gray-900 truncate">AI Builder</div>
-            <div className="text-[10px] sm:text-xs text-gray-500 truncate hidden sm:block">Describe → Build</div>
-          </div>
-        </div>
-        <div className="text-[10px] sm:text-xs text-gray-500 flex items-center gap-1.5 sm:gap-2 bg-emerald-50 px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-full flex-shrink-0">
-          <Sparkles className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-emerald-600" />
-          <span className="text-emerald-700 font-medium hidden xs:inline">Guided</span>
-        </div>
-      </div>
-
-      <div ref={listRef} className="flex-1 overflow-y-auto px-3 sm:px-4 py-3 sm:py-4 bg-gradient-to-b from-gray-50 to-white min-h-0">
+    <div className="h-full flex flex-col overflow-hidden bg-white">
+      {/* Messages area */}
+      <div ref={listRef} className="flex-1 overflow-y-auto px-3 sm:px-4 py-3 sm:py-4 bg-gradient-to-b from-gray-50/30 to-white min-h-0">
         {messages.length === 0 ? (
           <div className="pt-2 sm:pt-4">
             <div className="rounded-xl sm:rounded-2xl border border-gray-200 bg-white p-3 sm:p-5 shadow-sm">
@@ -284,45 +269,49 @@ export function FactoryChat({
         )}
       </div>
 
-      <div className="border-t border-gray-100 bg-white/95 backdrop-blur-sm p-3 sm:p-4 flex-shrink-0 max-h-[40%] overflow-y-auto">
+      {/* Input area - fixed at bottom */}
+      <div className="flex-shrink-0 border-t border-gray-200 bg-white p-3 pb-3 lg:pb-3">
+        {/* Build action buttons */}
         {canShowBuildActions ? (
-          <div className="mb-2 sm:mb-3 flex flex-wrap items-center gap-2">
+          <div className="mb-2.5 flex flex-wrap items-center gap-1.5">
             <Button
               type="button"
               size="sm"
               onClick={() => requestAutonomousBuild("ui_only")}
               disabled={isLoading || isBuilding}
-              className="gap-2 bg-emerald-600 hover:bg-emerald-700"
+              className="h-8 gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-xs"
             >
-              <Play className="h-3.5 w-3.5" />
+              <Play className="h-3 w-3" />
               Build UI
             </Button>
             <Button
               type="button"
               size="sm"
-              variant="secondary"
+              variant="outline"
               onClick={() => requestAutonomousBuild("backend")}
               disabled={isLoading || isBuilding}
-              className="gap-2"
-              title="Add backend APIs + data model (phased build)"
+              className="h-8 gap-1.5 text-xs border-gray-300"
+              title="Add backend APIs + data model"
             >
-              Add backend
+              + Backend
             </Button>
             <Button
               type="button"
               size="sm"
-              variant="secondary"
+              variant="outline"
               onClick={() => requestAutonomousBuild("auth")}
               disabled={isLoading || isBuilding}
-              className="gap-2"
-              title="Add authentication (phased build)"
+              className="h-8 gap-1.5 text-xs border-gray-300"
+              title="Add authentication"
             >
-              Add auth
+              + Auth
             </Button>
           </div>
         ) : null}
+
+        {/* Chat input form */}
         <form
-          className="flex items-center gap-1.5 sm:gap-2"
+          className="flex items-center gap-2"
           onSubmit={(e) => {
             e.preventDefault();
             void send(input);
@@ -331,57 +320,51 @@ export function FactoryChat({
           <Input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Describe what you want…"
+            placeholder="Describe what you want to build…"
             disabled={isLoading}
-            className="h-9 sm:h-11 text-sm border-gray-200 focus:border-emerald-300 focus:ring-emerald-200"
+            className="h-10 text-sm border-gray-300 focus:border-emerald-400 focus:ring-emerald-200 bg-gray-50 focus:bg-white"
           />
           <Button
             type="submit"
             disabled={!canSend}
-            className="h-9 w-9 sm:h-11 sm:w-11 px-0 bg-emerald-600 hover:bg-emerald-700 flex-shrink-0"
+            className="h-10 w-10 px-0 bg-emerald-600 hover:bg-emerald-700 flex-shrink-0 shadow-sm"
           >
-            <Send className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+            <Send className="h-4 w-4" />
           </Button>
         </form>
-        <div className="mt-2 sm:mt-3 flex items-center justify-between gap-2 sm:gap-3">
+
+        {/* Auto-build toggle */}
+        <div className="mt-2 flex items-center gap-3">
           <button
             type="button"
-            className="text-[10px] sm:text-xs text-gray-600 hover:text-gray-900 inline-flex items-center gap-1.5 sm:gap-2 transition-colors"
+            className="text-[11px] text-gray-500 hover:text-gray-700 inline-flex items-center gap-1.5 transition-colors"
             onClick={() => setAutoPreview((v) => !v)}
           >
             <span
-              className={`h-3.5 w-3.5 sm:h-4 sm:w-4 rounded border-2 flex items-center justify-center transition-colors flex-shrink-0 ${
+              className={`h-3.5 w-3.5 rounded border-2 flex items-center justify-center transition-colors flex-shrink-0 ${
                 autoPreview ? "bg-emerald-600 border-emerald-600 text-white" : "bg-white border-gray-300"
               }`}
             >
-              {autoPreview ? <Check className="h-2.5 w-2.5 sm:h-3 sm:w-3" /> : null}
+              {autoPreview ? <Check className="h-2 w-2" /> : null}
             </span>
-            <span className="hidden xs:inline">Auto-build when ready</span>
-            <span className="xs:hidden">Auto-build</span>
+            Auto-build
           </button>
-          <div className="text-[10px] sm:text-xs text-gray-400 truncate hidden sm:block">
-            {isLoaded && user?.primaryEmailAddress?.emailAddress
-              ? user.primaryEmailAddress.emailAddress
-              : ""}
-          </div>
         </div>
 
+        {/* Followup questions or ready state */}
         {hasFollowups ? (
-          <div className="mt-3 rounded-xl border border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 p-3">
-            <div className="text-xs font-medium text-amber-900 flex items-center gap-2">
-              <Sparkles className="h-3.5 w-3.5" />
-              Quick questions before building
+          <div className="mt-2.5 rounded-lg border border-amber-200 bg-amber-50/50 p-2.5">
+            <div className="text-[11px] font-medium text-amber-800 flex items-center gap-1.5">
+              <Sparkles className="h-3 w-3" />
+              Quick questions
             </div>
-            <p className="mt-1 text-[11px] text-amber-700">
-              Answer these to get better results, or click Build & Preview above to proceed.
-            </p>
-            <div className="mt-2 space-y-2">
+            <div className="mt-1.5 space-y-1.5">
               {followups.map((q) => (
                 <button
                   key={q}
                   type="button"
                   onClick={() => setInput((prev) => prev ? `${prev}\n\n${q}\n` : `${q}\n`)}
-                  className="w-full text-left text-xs rounded-lg border border-amber-200 bg-white/80 px-3 py-2 text-amber-800 hover:bg-white hover:border-amber-300 transition-colors"
+                  className="w-full text-left text-[11px] rounded border border-amber-200 bg-white/80 px-2.5 py-1.5 text-amber-800 hover:bg-white hover:border-amber-300 transition-colors"
                 >
                   {q}
                 </button>
@@ -389,14 +372,11 @@ export function FactoryChat({
             </div>
           </div>
         ) : readyForBuild ? (
-          <div className="mt-3 rounded-xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-teal-50 p-3">
-            <div className="text-xs font-medium text-emerald-900 flex items-center gap-2">
-              <Check className="h-3.5 w-3.5" />
-              Ready to build
+          <div className="mt-2.5 rounded-lg border border-emerald-200 bg-emerald-50/50 p-2.5">
+            <div className="text-[11px] font-medium text-emerald-800 flex items-center gap-1.5">
+              <Check className="h-3 w-3" />
+              Ready to build — click Build UI above
             </div>
-            <p className="mt-1 text-[11px] text-emerald-700">
-              Click <span className="font-medium">Build & Preview</span> above to generate your app.
-            </p>
           </div>
         ) : null}
       </div>

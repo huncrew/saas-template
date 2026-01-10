@@ -103,40 +103,47 @@ export function ResizableSplit({
       </div>
 
       {/* Mobile/Tablet: Full-screen tab-based view */}
-      <div className="lg:hidden h-full flex flex-col">
+      <div className="lg:hidden h-full flex flex-col bg-white">
         {/* Content area - full screen for selected tab */}
         <div className="flex-1 min-h-0 overflow-hidden">
           {mobileTab === "chat" ? (
-            <div className="h-full">{left}</div>
+            <div className="h-full flex flex-col">
+              {/* Chat content with bottom padding for tab bar */}
+              <div className="flex-1 min-h-0 pb-0">{left}</div>
+            </div>
           ) : (
             <div className="h-full overflow-auto">{right}</div>
           )}
         </div>
 
-        {/* Bottom tab bar */}
-        <div className="flex-shrink-0 border-t border-gray-200 bg-white/95 backdrop-blur-sm safe-area-bottom">
+        {/* Bottom tab bar - sleeker design */}
+        <div className="flex-shrink-0 border-t border-gray-200 bg-white safe-area-bottom shadow-[0_-2px_10px_rgba(0,0,0,0.05)]">
           <div className="flex">
             <button
               onClick={() => setMobileTab("chat")}
-              className={`flex-1 flex flex-col items-center gap-1 py-3 px-4 transition-colors ${
+              className={`flex-1 flex flex-col items-center gap-0.5 py-2.5 px-4 transition-all ${
                 mobileTab === "chat"
-                  ? "text-emerald-600 bg-emerald-50/50"
-                  : "text-gray-500 hover:text-gray-700 hover:bg-gray-50"
+                  ? "text-emerald-600"
+                  : "text-gray-400 hover:text-gray-600"
               }`}
             >
-              <MessageSquare className={`h-5 w-5 ${mobileTab === "chat" ? "fill-emerald-100" : ""}`} />
-              <span className="text-xs font-medium">Chat</span>
+              <div className={`p-1.5 rounded-lg transition-colors ${mobileTab === "chat" ? "bg-emerald-100" : ""}`}>
+                <MessageSquare className="h-5 w-5" />
+              </div>
+              <span className="text-[10px] font-medium">Chat</span>
             </button>
             <button
               onClick={() => setMobileTab("workspace")}
-              className={`flex-1 flex flex-col items-center gap-1 py-3 px-4 transition-colors ${
+              className={`flex-1 flex flex-col items-center gap-0.5 py-2.5 px-4 transition-all ${
                 mobileTab === "workspace"
-                  ? "text-emerald-600 bg-emerald-50/50"
-                  : "text-gray-500 hover:text-gray-700 hover:bg-gray-50"
+                  ? "text-emerald-600"
+                  : "text-gray-400 hover:text-gray-600"
               }`}
             >
-              <LayoutGrid className={`h-5 w-5 ${mobileTab === "workspace" ? "fill-emerald-100" : ""}`} />
-              <span className="text-xs font-medium">Workspace</span>
+              <div className={`p-1.5 rounded-lg transition-colors ${mobileTab === "workspace" ? "bg-emerald-100" : ""}`}>
+                <LayoutGrid className="h-5 w-5" />
+              </div>
+              <span className="text-[10px] font-medium">Workspace</span>
             </button>
           </div>
         </div>

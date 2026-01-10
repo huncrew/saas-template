@@ -335,8 +335,8 @@ export default function ProjectWorkspacePage() {
           className="relative h-full"
           storageKey={`factory.split.${projectId}`}
           left={
-            <div className="h-full bg-white border-r border-gray-200 shadow-sm">
-              <div className="h-12 sm:h-14 px-3 sm:px-5 border-b border-gray-100 bg-white/80 backdrop-blur-sm flex items-center justify-between gap-2">
+            <div className="h-full flex flex-col bg-white border-r border-gray-200 shadow-sm overflow-hidden">
+              <div className="flex-shrink-0 h-12 sm:h-14 px-3 sm:px-5 border-b border-gray-100 bg-white/80 backdrop-blur-sm flex items-center justify-between gap-2">
                 <div className="min-w-0 flex-1">
                   <div className="text-xs sm:text-sm font-semibold text-gray-900 truncate flex items-center gap-1.5 sm:gap-2">
                     <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-emerald-500 animate-pulse flex-shrink-0" />
@@ -350,26 +350,28 @@ export default function ProjectWorkspacePage() {
                   <BuildStatusPill build={activeBuild || undefined} />
                 </div>
               </div>
-              {projectLoadError ? (
-                <div className="p-4">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Project not available</CardTitle>
-                      <CardDescription>{projectLoadError}</CardDescription>
-                    </CardHeader>
-                    <CardContent className="text-sm text-gray-600">
-                      This usually happens if the project was created while the orchestrator URL wasn’t configured (mock mode).
-                      Create a new project from <span className="font-medium">/projects</span>.
-                    </CardContent>
-                  </Card>
-                </div>
-              ) : (
-                <FactoryChat
-                  projectId={projectId}
-                  onPreviewBuildStarted={(b) => setActiveBuild(b)}
-                  onAutonomousBuildRequested={(mode) => triggerAutonomousBuild(mode || "ui_only")}
-                />
-              )}
+              <div className="flex-1 min-h-0 overflow-hidden">
+                {projectLoadError ? (
+                  <div className="p-4">
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Project not available</CardTitle>
+                        <CardDescription>{projectLoadError}</CardDescription>
+                      </CardHeader>
+                      <CardContent className="text-sm text-gray-600">
+                        This usually happens if the project was created while the orchestrator URL wasn't configured (mock mode).
+                        Create a new project from <span className="font-medium">/projects</span>.
+                      </CardContent>
+                    </Card>
+                  </div>
+                ) : (
+                  <FactoryChat
+                    projectId={projectId}
+                    onPreviewBuildStarted={(b) => setActiveBuild(b)}
+                    onAutonomousBuildRequested={(mode) => triggerAutonomousBuild(mode || "ui_only")}
+                  />
+                )}
+              </div>
             </div>
           }
           right={

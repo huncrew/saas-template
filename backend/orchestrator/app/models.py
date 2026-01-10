@@ -30,6 +30,9 @@ class Project(BaseModel):
     spec_markdown: Optional[str] = None
     spec_updated_at: Optional[str] = None
     spec_yaml: Optional[str] = None
+    # Durable agent/orchestrator state (enables iterative development across deploys/restarts).
+    # Stored as a JSON-serializable dict (schema evolves; DynamoDB is schemaless).
+    agent_state: Optional[dict] = None
 
 
 class BuildArtifacts(BaseModel):

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { MessageSquare, LayoutGrid } from "lucide-react";
 
 type Props = {
   storageKey?: string;
@@ -11,6 +12,8 @@ type Props = {
   right: React.ReactNode;
   className?: string;
 };
+
+type MobileTab = "chat" | "workspace";
 
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
@@ -28,6 +31,7 @@ export function ResizableSplit({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const draggingRef = useRef(false);
   const [leftPx, setLeftPx] = useState<number>(defaultLeftPx);
+  const [mobileTab, setMobileTab] = useState<MobileTab>("chat");
 
   useEffect(() => {
     try {
@@ -98,12 +102,43 @@ export function ResizableSplit({
         </div>
       </div>
 
-      <div className="lg:hidden h-full">
-        {/* Mobile: Stack with chat taking most space, preview panel minimal */}
-        <div className="h-full grid grid-rows-[minmax(0,1fr)_auto]">
-          <div className="min-h-0 overflow-hidden border-b border-gray-200">{left}</div>
-          {/* Preview panel - collapsible on mobile, max 40% height */}
-          <div className="min-h-[180px] max-h-[40vh] overflow-auto">{right}</div>
+      {/* Mobile/Tablet: Full-screen tab-based view */}
+      <div className="lg:hidden h-full flex flex-col">
+        {/* Content area - full screen for selected tab */}
+        <div className="flex-1 min-h-0 overflow-hidden">
+          {mobileTab === "chat" ? (
+            <div className="h-full">{left}</div>
+          ) : (
+            <div className="h-full overflow-auto">{right}</div>
+          )}
+        </div>
+
+        {/* Bottom tab bar */}
+        <div className="flex-shrink-0 border-t border-gray-200 bg-white/95 backdrop-blur-sm safe-area-bottom">
+          <div className="flex">
+            <button
+              onClick={() => setMobileTab("chat")}
+              className={`flex-1 flex flex-col items-center gap-1 py-3 px-4 transition-colors ${
+                mobileTab === "chat"
+                  ? "text-emerald-600 bg-emerald-50/50"
+                  : "text-gray-500 hover:text-gray-700 hover:bg-gray-50"
+              }`}
+            >
+              <MessageSquare className={`h-5 w-5 ${mobileTab === "chat" ? "fill-emerald-100" : ""}`} />
+              <span className="text-xs font-medium">Chat</span>
+            </button>
+            <button
+              onClick={() => setMobileTab("workspace")}
+              className={`flex-1 flex flex-col items-center gap-1 py-3 px-4 transition-colors ${
+                mobileTab === "workspace"
+                  ? "text-emerald-600 bg-emerald-50/50"
+                  : "text-gray-500 hover:text-gray-700 hover:bg-gray-50"
+              }`}
+            >
+              <LayoutGrid className={`h-5 w-5 ${mobileTab === "workspace" ? "fill-emerald-100" : ""}`} />
+              <span className="text-xs font-medium">Workspace</span>
+            </button>
+          </div>
         </div>
       </div>
     </div>

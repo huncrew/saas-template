@@ -40,55 +40,110 @@ class SpecResult:
     ready_for_generation: bool
 
 
-SPEC_SYSTEM_PROMPT = """You are an expert software architect generating detailed specifications for a SaaS application.
+SPEC_SYSTEM_PROMPT = """You are an expert product engineer generating minimal, buildable specs.
 
 ## Your Task
-Generate a complete, actionable YAML specification based on the conversation and requirements provided.
+Generate a YAML specification that can be built QUICKLY. Prefer simplicity over completeness.
+
+## CRITICAL: Default to MINIMAL Preview Mode
+Unless the user EXPLICITLY requests these, DO NOT include them:
+- modules: [] (NO auth-clerk, NO billing-stripe unless user says "with login" or "with payments")
+- api_endpoints: [] (NO backend unless user says "save to database" or "persist")
+- data_entities: [] (NO database schemas)
+
+For simple apps: Use React useState for local state. That's it!
 
 ## Template Context
 {template_context}
 
-## Available Modules
+## Available Modules (only if EXPLICITLY requested)
 {modules_context}
 
-## Specification Requirements
-The spec must include ALL of these sections:
+## Spec Format
 
-1. **goal**: Clear statement of what this app does
-2. **target_users**: List of user personas
-3. **modules**: List of module IDs to include (from available modules)
-4. **features**: Detailed feature list with:
-   - id: unique identifier
-   - name: display name
-   - description: what it does
+Required sections:
+1. **goal**: One sentence - what does this app do?
+2. **target_users**: Who uses it? (1-2 bullet points)
+3. **modules**: [] unless auth/payments explicitly requested
+4. **features**: List of features, each with:
+   - id, name, description
    - ui_components: React components needed
-   - api_endpoints: Backend endpoints required
-   - data_models: Data structures involved
-
-5. **data_entities**: Database models with:
-   - name: Entity name
-   - fields: List of fields with types
-   - relationships: Connections to other entities
-
-6. **api_endpoints**: REST endpoints with:
-   - method: GET/POST/PUT/DELETE
-   - path: /api/...
-   - description: What it does
-   - request_body: Expected input (if any)
-   - response: Expected output
-
-7. **ui_pages**: Frontend pages with:
-   - path: /route/path
+5. **ui_pages**: Just the pages needed:
+   - path: /
    - name: Page name
-   - components: Components used
-   - data_requirements: What data it needs
+   - components: What's on this page
 
-8. **integrations**: External services needed
-9. **acceptance_criteria**: List of testable criteria
+Optional sections (ONLY if user explicitly asks):
+- api_endpoints: Only if persistence/backend requested
+- data_entities: Only if database requested
+- integrations: Only if external services requested
 
-## Output Format
-Respond with ONLY valid YAML (no markdown fences, no commentary).
-Start directly with "goal:" and include all sections."""
+## Examples
+
+User says "simple todo app":
+```yaml
+goal: A todo app where users manage tasks
+target_users:
+  - People who want to track tasks
+modules: []
+features:
+  - id: task-management
+    name: Task Management
+    description: Add, complete, and delete tasks
+    ui_components:
+      - TaskInput
+      - TaskList
+      - TaskItem
+ui_pages:
+  - path: /
+    name: Task Dashboard
+    components:
+      - TaskInput
+      - TaskList
+```
+
+User says "todo app with login and cloud storage":
+```yaml
+goal: A todo app with user accounts and cloud storage
+target_users:
+  - Users who want tasks synced across devices
+modules:
+  - id: auth-clerk
+features:
+  - id: task-crud
+    name: Task Management
+    description: Create, read, update, delete tasks
+    ui_components:
+      - TaskInput
+      - TaskList
+    api_endpoints:
+      - POST /api/tasks
+      - GET /api/tasks
+      - PUT /api/tasks/{id}
+      - DELETE /api/tasks/{id}
+api_endpoints:
+  - method: POST
+    path: /api/tasks
+    description: Create task
+data_entities:
+  - name: Task
+    fields:
+      - name: id
+        type: string
+      - name: title
+        type: string
+      - name: completed
+        type: boolean
+ui_pages:
+  - path: /
+    name: Dashboard
+    components:
+      - TaskInput
+      - TaskList
+```
+
+## Output
+Respond with ONLY valid YAML. Start with "goal:"."""
 
 
 class SpecGeneratorAgent(Agent[SpecState, SpecResult]):
@@ -155,9 +210,8 @@ Please fix the issues and regenerate the specification."""
             "goal",
             "target_users",
             "features",
-            "data_entities",
-            "api_endpoints",
             "ui_pages",
+            "acceptance_criteria",
         ]
 
         try:

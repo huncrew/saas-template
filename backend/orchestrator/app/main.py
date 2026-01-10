@@ -1024,33 +1024,27 @@ def project_chat(
             # Some models will return followups but omit spec_markdown.
             # Ensure the UI always gets at least a usable skeleton spec.
             if not spec_md and not spec_yaml:
+                # Keep this aligned with the spec schema used by agents + diagram generation.
+                # Diagrams require `ui_pages`/`api_endpoints`/`data_entities` keys to be present.
                 spec_yaml = (
                     f"goal: Build V1 of {p.name} on template {p.template_id}\n"
                     "target_users:\n"
                     "  - SaaS founders validating v1\n"
-                    "key_use_cases:\n"
-                    "  - title: Dashboard\n"
-                    "    description: View KPIs and quick links\n"
-                    "ux_modules:\n"
+                    "modules: []\n"
+                    "features:\n"
                     "  - id: dashboard\n"
+                    "    name: Dashboard\n"
                     "    description: KPI cards + quick actions\n"
-                    "data_entities:\n"
-                    "  - name: Project\n"
-                    "    keys:\n"
-                    "      - field: project_id\n"
-                    "        type: string\n"
-                    "    attributes:\n"
-                    "      - field: name\n"
-                    "        type: string\n"
-                    "backend_apis:\n"
-                    "  - route: GET /api/projects\n"
-                    "    handler: backend/lambdas/api/projects/list.py\n"
-                    "automations: []\n"
-                    "integrations:\n"
-                    "  - name: clerk\n"
-                    "infra_overrides: {}\n"
+                    "    ui_components: []\n"
+                    "ui_pages:\n"
+                    "  - path: /\n"
+                    "    name: Dashboard\n"
+                    "    components: []\n"
+                    "api_endpoints: []\n"
+                    "data_entities: []\n"
+                    "integrations: []\n"
                     "acceptance_criteria:\n"
-                    "  - Projects list loads for signed-in users\n"
+                    "  - Preview renders without runtime errors\n"
                 )
                 spec_md = _spec_markdown_from_yaml(spec_yaml)
 
@@ -1090,9 +1084,18 @@ def project_chat(
             "key_use_cases:\n"
             "  - title: Demo\n"
             "    description: Show placeholder content\n"
-            "ux_modules: []\n"
+            "modules: []\n"
+            "features:\n"
+            "  - id: ui-prototype\n"
+            "    name: UI Prototype\n"
+            "    description: Minimal UI preview\n"
+            "    ui_components: []\n"
+            "ui_pages:\n"
+            "  - path: /\n"
+            "    name: Home\n"
+            "    components: []\n"
+            "api_endpoints: []\n"
             "data_entities: []\n"
-            "backend_apis: []\n"
             "automations: []\n"
             "integrations: []\n"
             "infra_overrides: {}\n"
@@ -1764,6 +1767,7 @@ def health() -> dict:
 @app.post("/v1/projects/{project_id}/build-autonomous")
 async def build_autonomous_stream(
     project_id: str,
+    payload: Optional[dict] = None,
     x_user_id: Optional[str] = Header(default=None),
 ):
     """
@@ -1893,6 +1897,18 @@ async def build_autonomous_stream(
             # First event immediately - keeps connection alive
             yield f"data: {json.dumps({'phase': 'initializing', 'message': 'Starting build...', 'attempt': 0, 'max_attempts': 3})}\n\n"
 
+            # Determine build mode (Option B: phase the build)
+            requested_mode = None
+            try:
+                if isinstance(payload, dict):
+                    requested_mode = (payload.get("build_mode") or payload.get("mode") or "").strip()
+            except Exception:
+                requested_mode = None
+
+            build_mode = requested_mode if requested_mode in ("ui_only", "backend", "auth") else "ui_only"
+
+            yield f"data: {json.dumps({'phase': 'initializing', 'message': f'Build mode: {build_mode}', 'attempt': 0, 'max_attempts': 3})}\n\n"
+
             # Generate spec if missing - do this INSIDE the stream with heartbeats
             spec_yaml = project.spec_yaml
             if not spec_yaml:
@@ -1937,16 +1953,34 @@ async def build_autonomous_stream(
 
             # If still no spec, create a minimal one
             if not spec_yaml:
+                # Keep this compatible with diagram generation + phased codegen:
+                # it must include `ui_pages` at minimum, otherwise architecture will look empty.
                 spec_yaml = f"""goal: Build {project.name}
-template: {project.template_id}
+target_users:
+  - Internal testing
+modules: []
 features:
-  - Core functionality as described
-  - Clean, modern UI
-  - Error handling
+  - id: ui-v1
+    name: UI V1
+    description: Clean, modern UI with local state (no backend yet)
+    ui_components: []
+ui_pages:
+  - path: /
+    name: Home
+    components: []
+api_endpoints: []
+data_entities: []
+integrations: []
+acceptance_criteria:
+  - Preview renders without runtime errors
+template: {project.template_id}
 """
                 project.spec_yaml = spec_yaml
                 project.spec_updated_at = now_iso()
                 repo.put_project(user_id, project)
+
+            # Apply phasing to the spec (ui_only/backend/auth)
+            phased_spec_yaml = _apply_build_mode_to_spec(spec_yaml, build_mode)
 
             # Helper to trigger actual CodeBuild (simplified for SSE)
             def trigger_codebuild(project_id: str, gen_result: dict, user_id: str) -> dict:
@@ -2029,7 +2063,7 @@ features:
             final_status = None
             async for sse_event in run_autonomous_build_with_sse(
                 project_id=project_id,
-                spec_yaml=spec_yaml,  # Use the local variable we just generated/retrieved
+                spec_yaml=phased_spec_yaml,  # Phase-specific spec
                 generate_code_fn=lambda **kw: run_async(smart_generate_code(
                     project_id=kw.get("project_id"),
                     project_name=project.name,
@@ -2147,3 +2181,75 @@ def _resolve_skeleton_dir(template_id: str) -> Path:
 
     # Last resort: return the candidate even if it looks incomplete; downstream will error.
     return candidate
+
+
+def _apply_build_mode_to_spec(spec_yaml: str, build_mode: str) -> str:
+    """
+    Option B (auto-phasing): derive a phase-specific spec from a comprehensive spec.
+
+    build_mode:
+      - ui_only: UI preview only (local state, no backend, no modules)
+      - backend: allow backend APIs + data models, but no auth modules
+      - auth: allow full spec (including modules/auth)
+    """
+    doc = (spec_yaml or "").strip()
+    if not doc:
+        return doc
+
+    if build_mode not in ("ui_only", "backend", "auth"):
+        return doc
+
+    if build_mode == "auth":
+        return doc
+
+    try:
+        parsed = yaml.safe_load(doc)
+    except Exception:
+        return doc
+
+    if not isinstance(parsed, dict):
+        return doc
+
+    # Normalize common shapes across our two spec styles.
+    # - agents/spec_agent: uses api_endpoints/data_entities/modules
+    # - deterministic manifests: uses backend_apis/data_entities/modules
+    if build_mode in ("ui_only", "backend"):
+        # Always remove auth/billing modules unless explicitly requested (phase 3).
+        parsed["modules"] = []
+
+    if build_mode == "ui_only":
+        # No backend APIs / persistence in phase 1
+        parsed["api_endpoints"] = []
+        parsed["backend_apis"] = []
+        parsed["data_entities"] = []
+        parsed["integrations"] = []
+
+        # Strip api_endpoints/data_models from features (best-effort)
+        feats = parsed.get("features")
+        if isinstance(feats, list):
+            for f in feats:
+                if isinstance(f, dict):
+                    f["api_endpoints"] = []
+                    f["data_models"] = []
+
+        # Keep acceptance criteria UI-only (best-effort filter)
+        ac = parsed.get("acceptance_criteria")
+        if isinstance(ac, list):
+            keep = []
+            for item in ac:
+                if not isinstance(item, str):
+                    continue
+                low = item.lower()
+                if any(k in low for k in ["auth", "login", "sign in", "sign up", "stripe", "payment", "billing", "persist", "database", "api endpoint", "/api/"]):
+                    continue
+                keep.append(item)
+            if keep:
+                parsed["acceptance_criteria"] = keep[:8]
+
+    # Annotate so codegen can be explicit about which phase it's implementing.
+    parsed["build_mode"] = build_mode
+
+    try:
+        return yaml.safe_dump(parsed, sort_keys=False, allow_unicode=True)
+    except Exception:
+        return doc

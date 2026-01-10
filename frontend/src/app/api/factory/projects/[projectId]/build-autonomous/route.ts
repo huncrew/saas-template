@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { jsonErr, orchestratorBaseUrl, getUserId } from "../../../_util";
 
 export async function POST(
-  _req: NextRequest,
+  req: NextRequest,
   context: { params: Promise<{ projectId: string }> }
 ) {
   const { projectId } = await context.params;
@@ -15,6 +15,7 @@ export async function POST(
   }
 
   try {
+    const bodyText = await req.text().catch(() => "");
     // Forward the request to the orchestrator
     const res = await fetch(`${base}/v1/projects/${encodeURIComponent(projectId)}/build-autonomous`, {
       method: "POST",
@@ -22,6 +23,7 @@ export async function POST(
         "Content-Type": "application/json",
         "X-User-Id": userId,
       },
+      body: bodyText && bodyText.trim().length ? bodyText : JSON.stringify({}),
     });
 
     if (!res.ok) {

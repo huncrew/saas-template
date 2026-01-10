@@ -18,6 +18,7 @@ import yaml
 
 logger = logging.getLogger(__name__)
 
+from app.repo import get_repo
 from .base import AIClient
 from .orchestrator import AgentOrchestrator, OrchestratorState, ProjectPhase
 from .prebuild_validator import validate_generated_files, ValidationResult
@@ -107,16 +108,46 @@ async def run_compile_validation(
         validator.cleanup()
 
 
-def _get_state(project_id: str) -> OrchestratorState:
-    """Get or create orchestrator state for a project."""
+def _get_state(project_id: str, user_id: str) -> OrchestratorState:
+    """Get or create orchestrator state for a project.
+
+    We keep a hot in-process cache for performance, but we *also* persist
+    state on the Project record so iterative development survives restarts.
+    """
     if project_id in _STATE_CACHE:
-        return OrchestratorState.from_dict(_STATE_CACHE[project_id])
+        try:
+            return OrchestratorState.from_dict(_STATE_CACHE[project_id])
+        except Exception:
+            pass
+
+    # Durable fallback: load from the Project record (DynamoRepo or InMemoryRepo).
+    try:
+        repo = get_repo()
+        project = repo.get_project(user_id, project_id)
+        if project and isinstance(project.agent_state, dict) and project.agent_state.get("project_id") == project_id:
+            state = OrchestratorState.from_dict(project.agent_state)
+            _STATE_CACHE[project_id] = state.to_dict()
+            return state
+    except Exception:
+        pass
+
     return OrchestratorState(project_id=project_id)
 
 
-def _save_state(state: OrchestratorState) -> None:
-    """Persist orchestrator state."""
+def _save_state(state: OrchestratorState, user_id: str) -> None:
+    """Persist orchestrator state (cache + durable project record)."""
     _STATE_CACHE[state.project_id] = state.to_dict()
+
+    # Best-effort durability: store on the Project record (schemaless field).
+    try:
+        repo = get_repo()
+        project = repo.get_project(user_id, state.project_id)
+        if project:
+            project.agent_state = state.to_dict()
+            repo.put_project(user_id, project)
+    except Exception:
+        # Never break chat/codegen because persistence failed.
+        pass
 
 
 def _get_template_context(template_id: str, templates_dir) -> str:
@@ -176,7 +207,7 @@ async def process_chat_with_agents(
     Returns a response compatible with ProjectChatResponse.
     """
     # Get or create state
-    state = _get_state(project_id)
+    state = _get_state(project_id, user_id=user_id)
 
     # Reconstruct history from request if state is empty
     if not state.chat_history and history:
@@ -210,7 +241,7 @@ async def process_chat_with_agents(
     )
 
     # Save state
-    _save_state(state)
+    _save_state(state, user_id=user_id)
 
     # Build response compatible with existing API
     # Map agent actions to API-expected values
@@ -267,7 +298,7 @@ async def generate_code_with_agents(
     Returns file changes and validation status.
     """
     # Get state
-    state = _get_state(project_id)
+    state = _get_state(project_id, user_id=user_id)
 
     # Ensure spec is set
     if spec_yaml and not state.spec_yaml:
@@ -305,7 +336,7 @@ async def generate_code_with_agents(
     )
 
     # Save state
-    _save_state(state)
+    _save_state(state, user_id=user_id)
 
     if response.success:
         # Run pre-build validation BEFORE considering it successful
@@ -479,11 +510,15 @@ async def generate_code_agentic(
     ]
 
     if result.success:
+        # Check if validation passed - look for "passed" or "succeeded" in compile output
+        compile_lower = result.compile_output.lower() if result.compile_output else ""
+        validation_passed = "passed" in compile_lower or "succeeded" in compile_lower
+
         return {
             "success": True,
             "files": files_manifest,
             "files_count": len(files_manifest),
-            "validated": "succeeded" in result.compile_output.lower() if result.compile_output else False,
+            "validated": validation_passed,
             "summary": result.summary,
             "iterations": result.iterations,
             "compile_output": result.compile_output,

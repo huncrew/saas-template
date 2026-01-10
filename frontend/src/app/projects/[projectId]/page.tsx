@@ -16,7 +16,7 @@ import { toast } from "sonner";
 import {
   Diff, ExternalLink, FileText, Play, Rocket, RefreshCw, ShieldCheck,
   GitBranch, CheckCircle, AlertTriangle, XCircle, Clock, Download,
-  Code2, Database, Globe, Server, Eye, RotateCcw, Layers
+  Code2, Database, Globe, Server, Eye, RotateCcw, Layers, User
 } from "lucide-react";
 import { MermaidDiagram } from "@/components/factory/mermaid-diagram";
 
@@ -92,6 +92,24 @@ export default function ProjectWorkspacePage() {
   const [entityDiagram, setEntityDiagram] = useState<string | null>(null);
   const [isLoadingArchitecture, setIsLoadingArchitecture] = useState(false);
 
+  async function fetchArchitecture(targetProjectId: string) {
+    if (!targetProjectId) return;
+    setIsLoadingArchitecture(true);
+    try {
+      const response = await fetch(`/api/factory/projects/${targetProjectId}/architecture`);
+      if (response.ok) {
+        const data = await response.json();
+        // `""` means "no diagram available" – normalize to null for UI.
+        setArchitectureDiagram(data.architecture_diagram || null);
+        setEntityDiagram(data.entity_diagram || null);
+      }
+    } catch (err) {
+      console.error("Failed to fetch architecture:", err);
+    } finally {
+      setIsLoadingArchitecture(false);
+    }
+  }
+
   const previewUrl = activeBuild?.artifacts?.preview_url;
   const previewReady = !!previewUrl && activeBuild?.type === "preview" && activeBuild?.status === "succeeded";
   const previewFailed = activeBuild?.type === "preview" && activeBuild?.status === "failed";
@@ -158,33 +176,18 @@ export default function ProjectWorkspacePage() {
 
   // Fetch architecture diagrams when project changes or has spec
   useEffect(() => {
-    async function fetchArchitecture() {
-      if (!project?.project_id) return;
-
-      setIsLoadingArchitecture(true);
-      try {
-        const response = await fetch(`/api/factory/projects/${project.project_id}/architecture`);
-        if (response.ok) {
-          const data = await response.json();
-          setArchitectureDiagram(data.architecture_diagram || null);
-          setEntityDiagram(data.entity_diagram || null);
-        }
-      } catch (err) {
-        console.error("Failed to fetch architecture:", err);
-      } finally {
-        setIsLoadingArchitecture(false);
-      }
-    }
-
-    fetchArchitecture();
+    if (!project?.project_id) return;
+    fetchArchitecture(project.project_id);
   }, [project?.project_id, project?.spec_updated_at]);
 
+  type BuildMode = "ui_only" | "backend" | "auth";
+
   async function triggerPreview() {
-    // Use autonomous build flow (includes retry loop with AI fixes)
-    triggerAutonomousBuild();
+    // Phase 1 default: UI-only preview.
+    triggerAutonomousBuild("ui_only");
   }
 
-  async function triggerAutonomousBuild() {
+  async function triggerAutonomousBuild(buildMode: BuildMode = "ui_only") {
     if (!canTrigger) return;
     setIsTriggering("autonomous");
     setIsAutonomousMode(true);
@@ -201,6 +204,7 @@ export default function ProjectWorkspacePage() {
       const response = await fetch(`/api/factory/projects/${projectId}/build-autonomous`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ build_mode: buildMode }),
       });
 
       if (!response.ok) {
@@ -229,7 +233,13 @@ export default function ProjectWorkspacePage() {
               const data = JSON.parse(line.slice(6));
 
               // Handle different phases
-              if (data.phase === "building" || data.phase === "analyzing_errors" || data.phase === "retrying" || data.phase === "generating") {
+              if (
+                data.phase === "building" ||
+                data.phase === "analyzing_errors" ||
+                data.phase === "retrying" ||
+                data.phase === "generating" ||
+                data.phase === "initializing"
+              ) {
                 if (data.errors && data.errors.length > 0) {
                   collectedErrors.push(...data.errors.filter((e: string) => !collectedErrors.includes(e)));
                 }
@@ -253,6 +263,17 @@ export default function ProjectWorkspacePage() {
                 if (data.build_id) {
                   const buildRes = await factoryApi.getBuild(data.build_id);
                   if (buildRes.data) setActiveBuild(buildRes.data);
+                }
+                // Refresh project (spec/spec_updated_at can be created/updated during /build-autonomous),
+                // then refresh architecture diagrams so the "Architecture" tab isn't stale/empty.
+                try {
+                  const projRes = await factoryApi.getProject(projectId);
+                  if (projRes.data) {
+                    setProject(projRes.data);
+                    await fetchArchitecture(projRes.data.project_id);
+                  }
+                } catch (e) {
+                  console.error("Failed to refresh project after build:", e);
                 }
               }
 
@@ -343,7 +364,11 @@ export default function ProjectWorkspacePage() {
                   </Card>
                 </div>
               ) : (
-                <FactoryChat projectId={projectId} onPreviewBuildStarted={(b) => setActiveBuild(b)} />
+                <FactoryChat
+                  projectId={projectId}
+                  onPreviewBuildStarted={(b) => setActiveBuild(b)}
+                  onAutonomousBuildRequested={(mode) => triggerAutonomousBuild(mode || "ui_only")}
+                />
               )}
             </div>
           }
@@ -445,14 +470,36 @@ export default function ProjectWorkspacePage() {
                               </Badge>
                             )}
                           </div>
-                          {previewReady && (
-                            <Button asChild variant="outline" size="sm" className="gap-1.5 border-emerald-200 hover:bg-emerald-50 h-7 sm:h-9 px-2 sm:px-3 text-xs">
-                              <a href={previewUrl} target="_blank" rel="noreferrer">
-                                <ExternalLink className="h-3 w-3 sm:h-4 sm:w-4" />
-                                <span className="hidden sm:inline">Open</span>
-                              </a>
-                            </Button>
-                          )}
+                          {previewReady ? (
+                            <div className="flex items-center gap-2">
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => triggerAutonomousBuild("backend")}
+                                disabled={!canTrigger || isTriggering === "autonomous"}
+                                className="gap-2 h-7 sm:h-9 px-2 sm:px-3 text-xs"
+                              >
+                                <Server className="h-3 w-3 sm:h-4 sm:w-4" />
+                                <span className="hidden sm:inline">Add backend</span>
+                              </Button>
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => triggerAutonomousBuild("auth")}
+                                disabled={!canTrigger || isTriggering === "autonomous"}
+                                className="gap-2 h-7 sm:h-9 px-2 sm:px-3 text-xs"
+                              >
+                                <User className="h-3 w-3 sm:h-4 sm:w-4" />
+                                <span className="hidden sm:inline">Add auth</span>
+                              </Button>
+                              <Button asChild variant="outline" size="sm" className="gap-1.5 border-emerald-200 hover:bg-emerald-50 h-7 sm:h-9 px-2 sm:px-3 text-xs">
+                                <a href={previewUrl} target="_blank" rel="noreferrer">
+                                  <ExternalLink className="h-3 w-3 sm:h-4 sm:w-4" />
+                                  <span className="hidden sm:inline">Open</span>
+                                </a>
+                              </Button>
+                            </div>
+                          ) : null}
                         </CardHeader>
                         <CardContent className="h-[calc(100%-6rem)] p-0">
                           {/* Autonomous Build Progress - Shown during autonomous build */}
@@ -577,10 +624,33 @@ export default function ProjectWorkspacePage() {
                                 <div className="text-sm text-gray-600 mb-4">
                                   {activeBuild?.error || "Something went wrong during the build process."}
                                 </div>
-                                <div className="flex gap-2 justify-center">
-                                  <Button onClick={triggerPreview} disabled={!canTrigger} className="gap-2 bg-emerald-600 hover:bg-emerald-700">
-                                    <RotateCcw className="h-4 w-4" /> Try again
-                                  </Button>
+                                <div className="flex flex-col items-center gap-3">
+                                  <div className="flex gap-2 justify-center">
+                                    <Button onClick={triggerPreview} disabled={!canTrigger} className="gap-2 bg-emerald-600 hover:bg-emerald-700">
+                                      <RotateCcw className="h-4 w-4" /> Try again (UI preview)
+                                    </Button>
+                                  </div>
+                                  <div className="flex flex-wrap gap-2 justify-center">
+                                    <Button
+                                      variant="secondary"
+                                      onClick={() => triggerAutonomousBuild("backend")}
+                                      disabled={!canTrigger}
+                                      className="gap-2"
+                                    >
+                                      <Server className="h-4 w-4" /> Add backend
+                                    </Button>
+                                    <Button
+                                      variant="secondary"
+                                      onClick={() => triggerAutonomousBuild("auth")}
+                                      disabled={!canTrigger}
+                                      className="gap-2"
+                                    >
+                                      <User className="h-4 w-4" /> Add auth
+                                    </Button>
+                                  </div>
+                                  <div className="text-[11px] text-gray-500">
+                                    UI preview is fastest. Add backend/auth in later builds.
+                                  </div>
                                 </div>
                               </div>
                             </div>
@@ -594,9 +664,32 @@ export default function ProjectWorkspacePage() {
                                 <div className="text-sm text-gray-600 mb-6">
                                   Start a preview build to see your application in action.
                                 </div>
-                                <Button onClick={triggerPreview} disabled={!canTrigger} className="gap-2 bg-emerald-600 hover:bg-emerald-700 shadow-lg">
-                                  <Play className="h-4 w-4" /> Build preview
-                                </Button>
+                                <div className="flex flex-col items-center gap-3">
+                                  <Button onClick={triggerPreview} disabled={!canTrigger} className="gap-2 bg-emerald-600 hover:bg-emerald-700 shadow-lg">
+                                    <Play className="h-4 w-4" /> Build UI preview
+                                  </Button>
+                                  <div className="flex flex-wrap gap-2 justify-center">
+                                    <Button
+                                      variant="secondary"
+                                      onClick={() => triggerAutonomousBuild("backend")}
+                                      disabled={!canTrigger}
+                                      className="gap-2"
+                                    >
+                                      <Server className="h-4 w-4" /> Add backend
+                                    </Button>
+                                    <Button
+                                      variant="secondary"
+                                      onClick={() => triggerAutonomousBuild("auth")}
+                                      disabled={!canTrigger}
+                                      className="gap-2"
+                                    >
+                                      <User className="h-4 w-4" /> Add auth
+                                    </Button>
+                                  </div>
+                                  <div className="text-[11px] text-gray-500">
+                                    Start with UI-only. Then layer backend/auth when you’re ready.
+                                  </div>
+                                </div>
                               </div>
                             </div>
                           )}

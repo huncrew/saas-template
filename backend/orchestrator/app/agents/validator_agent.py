@@ -356,7 +356,7 @@ class ValidatorAgent(Agent[ValidatorState, ValidationResult]):
         )
 
         build_output = stdout + stderr
-        state.build_output = build_output[:5000]  # Store first 5k chars
+        state.build_output = build_output[:20000]  # Store first 20k chars for better error context
 
         if code != 0:
             # Parse build errors - Next.js outputs TypeScript errors here

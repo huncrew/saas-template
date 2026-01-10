@@ -324,6 +324,22 @@ data "aws_iam_policy_document" "factory_task" {
       "${module.factory_artifacts_bucket.bucket_arn}/*"
     ]
   }
+
+  # Allow the orchestrator (ECS task role) to call Bedrock directly (Converse/InvokeModel).
+  statement {
+    sid = "BedrockInvoke"
+    actions = [
+      "bedrock:InvokeModel",
+      "bedrock:InvokeModelWithResponseStream"
+    ]
+    # NOTE: Opus 4.5 inference profiles can route across regions (e.g. us-east-2/us-west-2).
+    # Bedrock authorization can reference the underlying foundation model ARN in those regions,
+    # so we must allow Anthropic foundation-model ARNs across regions.
+    resources = [
+      "arn:aws:bedrock:*::foundation-model/anthropic.*",
+      "arn:aws:bedrock:${var.region}:${data.aws_caller_identity.current.account_id}:inference-profile/*"
+    ]
+  }
 }
 
 resource "aws_iam_role_policy" "factory_task" {

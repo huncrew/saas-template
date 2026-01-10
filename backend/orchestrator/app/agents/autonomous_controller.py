@@ -21,7 +21,7 @@ from typing import Any, AsyncGenerator, Callable, Optional
 
 from .autonomous_agent import AutonomousAgent, analyze_and_improve, get_improved_prompt
 from .security_agent import run_security_scan
-from .integration import run_compile_validation
+# NOTE: run_compile_validation removed - ECS container doesn't have npm
 
 
 class BuildPhase(Enum):
@@ -206,6 +206,24 @@ class AutonomousBuildController:
                     error_msg = gen_result.get("error", "Code generation failed")
                     all_errors.append(f"Attempt {attempt}: {error_msg}")
 
+                    # If agentic generation ran a real compile and captured output,
+                    # surface the *actual* TypeScript/webpack errors to the UI.
+                    compile_output = gen_result.get("compile_output") or ""
+                    if compile_output:
+                        try:
+                            extracted = self._extract_build_errors(compile_output)
+                            if extracted:
+                                all_errors.extend([f"Compile: {e}" for e in extracted[:5]])
+                            else:
+                                # Fallback: include a truncated snippet so we have *something* actionable.
+                                snippet = compile_output.strip()
+                                if len(snippet) > 800:
+                                    snippet = snippet[:800] + "..."
+                                if snippet:
+                                    all_errors.append(f"Compile output: {snippet}")
+                        except Exception:
+                            pass
+
                     # Phase: Analyzing errors
                     yield BuildProgress(
                         phase=BuildPhase.ANALYZING_ERRORS,
@@ -361,65 +379,9 @@ class AutonomousBuildController:
 
                     continue
 
-                # Phase: COMPILE VALIDATION (real npm ci && npm run build)
-                # This catches TypeScript errors that prebuild validation misses
-                skeleton_path = kwargs.get("skeleton_path")
-                if skeleton_path:
-                    yield BuildProgress(
-                        phase=BuildPhase.COMPILE_VALIDATING,
-                        message=f"Running real build validation (npm ci && npm run build)...",
-                        attempt=attempt,
-                        max_attempts=self.max_attempts,
-                        files_generated=files_count,
-                    )
-
-                    # Get the files for compile validation
-                    compile_files = [
-                        {"path": f.get("path", ""), "content": f.get("content", "")}
-                        for f in gen_result.get("files", [])
-                    ]
-
-                    compile_result = await run_compile_validation(
-                        files=compile_files,
-                        skeleton_path=skeleton_path,
-                    )
-
-                    if not compile_result.get("valid", False):
-                        compile_errors = compile_result.get("errors", [])
-                        error_msgs = [e.get("message", str(e)) for e in compile_errors[:5]]
-                        all_errors.extend([f"Compile: {e}" for e in error_msgs])
-
-                        yield BuildProgress(
-                            phase=BuildPhase.ANALYZING_ERRORS,
-                            message=f"Compile validation found {len(compile_errors)} TypeScript errors",
-                            attempt=attempt,
-                            max_attempts=self.max_attempts,
-                            errors=all_errors,
-                        )
-
-                        # Build fix instructions from compile errors
-                        fix_instructions = "COMPILE VALIDATION FAILED - TypeScript/build errors:\n\n"
-                        for err in compile_errors[:5]:
-                            fix_instructions += f"  - [{err.get('file', '?')}] {err.get('message', '')}\n"
-
-                        fix_instructions += "\nFix these TypeScript errors. Common issues:\n"
-                        fix_instructions += "- Missing exports: add 'export' keyword\n"
-                        fix_instructions += "- Type errors: ensure types match\n"
-                        fix_instructions += "- Missing imports: add required imports\n"
-
-                        all_improvements.append("Fix TypeScript compilation errors")
-
-                        yield BuildProgress(
-                            phase=BuildPhase.RETRYING,
-                            message="Retrying with TypeScript fixes (caught before CodeBuild)...",
-                            attempt=attempt,
-                            max_attempts=self.max_attempts,
-                            errors=all_errors,
-                            improvements=all_improvements,
-                        )
-
-                        kwargs["additional_instructions"] = fix_instructions
-                        continue
+                # NOTE: Compile validation (npm ci && npm run build) is SKIPPED here because
+                # the ECS container doesn't have Node.js installed. CodeBuild will do the
+                # real npm build after this step. The prebuild validator catches most issues.
 
                 # Validation passed - check security
                 yield BuildProgress(

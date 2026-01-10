@@ -25,9 +25,15 @@ const SUGGESTIONS = [
 export function FactoryChat({
   projectId,
   onPreviewBuildStarted,
+  onAutonomousBuildRequested,
 }: {
   projectId: string;
   onPreviewBuildStarted?: (b: FactoryBuild) => void;
+  /**
+   * Preferred (new) path: let the parent trigger the autonomous build flow
+   * so SSE progress + build state are handled in one place.
+   */
+  onAutonomousBuildRequested?: (buildMode?: "ui_only" | "backend" | "auth") => void | Promise<void>;
 }) {
   const { user, isLoaded } = useUser();
   const [messages, setMessages] = useState<Message[]>([]);
@@ -43,10 +49,24 @@ export function FactoryChat({
   const hasFollowups = followups.length > 0;
   const readyForBuild = pending?.suggested_action === "build_preview" && !hasFollowups;
 
+  const canShowBuildActions = !!onAutonomousBuildRequested && (messages.length > 0 || !!pending);
+
+  async function requestAutonomousBuild(mode: "ui_only" | "backend" | "auth") {
+    if (!onAutonomousBuildRequested) return;
+    await onAutonomousBuildRequested(mode);
+  }
+
   async function startPreviewBuild(autoTrigger = false) {
     if (isBuilding) return false;
     setIsBuilding(true);
     try {
+      // Prefer the autonomous build flow if parent provided it.
+      if (onAutonomousBuildRequested) {
+        await requestAutonomousBuild("ui_only");
+        toast.success(autoTrigger ? "Preview build started automatically" : "Preview build started");
+        return true;
+      }
+
       const res = await factoryApi.createPreviewBuild(projectId);
       if (res.data) {
         onPreviewBuildStarted?.(res.data);
@@ -216,6 +236,42 @@ export function FactoryChat({
       </div>
 
       <div className="border-t border-gray-100 bg-white/95 backdrop-blur-sm p-3 sm:p-4 flex-shrink-0 max-h-[40%] overflow-y-auto">
+        {canShowBuildActions ? (
+          <div className="mb-2 sm:mb-3 flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => requestAutonomousBuild("ui_only")}
+              disabled={isLoading || isBuilding}
+              className="gap-2 bg-emerald-600 hover:bg-emerald-700"
+            >
+              <Play className="h-3.5 w-3.5" />
+              Build UI
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={() => requestAutonomousBuild("backend")}
+              disabled={isLoading || isBuilding}
+              className="gap-2"
+              title="Add backend APIs + data model (phased build)"
+            >
+              Add backend
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={() => requestAutonomousBuild("auth")}
+              disabled={isLoading || isBuilding}
+              className="gap-2"
+              title="Add authentication (phased build)"
+            >
+              Add auth
+            </Button>
+          </div>
+        ) : null}
         <form
           className="flex items-center gap-1.5 sm:gap-2"
           onSubmit={(e) => {

@@ -51,6 +51,8 @@ class GenerationResult:
     error: Optional[str] = None
     iterations: int = 0
     compile_output: str = ""
+    # Conversation history for repair loop context
+    messages: list[dict] = field(default_factory=list)
 
 
 AGENTIC_SYSTEM_PROMPT = """You are an expert full-stack developer building a SaaS application.
@@ -76,16 +78,22 @@ Example: `import { Card, CardHeader, CardTitle, CardContent } from "@/components
 - `import { apiClient } from "@/lib/api"` - API client (not used in preview)
 - Icons: `import { Home, Settings, User, Search, ... } from "lucide-react"`
 
+## FORBIDDEN IMPORTS - DO NOT USE THESE!
+- `@clerk/nextjs` - NOT installed! Use dynamic imports from `@clerk/clerk-react` instead
+- Any package not in the template
+
 ## WHERE TO PUT YOUR CODE
+- Main page: `frontend/src/app/page.tsx` (update this to use your components!)
 - Your components: `frontend/src/components/app/*.tsx`
 - Your types: `frontend/src/types/app-types.ts`
-- Your pages: `frontend/src/app/(app)/*.tsx`
+- DO NOT create `frontend/src/app/app/` - that path is WRONG
 
 ## CRITICAL RULES
 1. ONLY import UI components listed above - DO NOT invent new ones
 2. All React components need `"use client";` as the FIRST line
 3. Use lucide-react icons, NEVER use <img> tags
 4. For preview builds: use useState with mock data (no backend)
+5. NEVER import from `@clerk/nextjs` - it does not exist in this project
 
 ## WORKFLOW (be efficient!)
 1. Write your types to `frontend/src/types/app-types.ts`
@@ -277,6 +285,7 @@ Please implement this specification. Start by exploring the existing codebase to
                     success=False,
                     error=f"Claude API error: {e}",
                     iterations=iterations,
+                    messages=messages,
                 )
 
             stop_reason = response.get("stopReason", "")
@@ -295,6 +304,7 @@ Please implement this specification. Start by exploring the existing codebase to
                     files_changed=files_changed,
                     summary=text[:500] if text else "Generation complete",
                     iterations=iterations,
+                    messages=messages,
                 )
 
             if not tool_calls:
@@ -338,6 +348,7 @@ Please implement this specification. Start by exploring the existing codebase to
                     files_changed=files_changed,
                     summary=finish_summary,
                     iterations=iterations,
+                    messages=messages,
                 )
 
         # Max iterations reached
@@ -346,6 +357,7 @@ Please implement this specification. Start by exploring the existing codebase to
             error=f"Max iterations ({self.config.max_iterations}) reached",
             files_changed=files_changed,
             iterations=iterations,
+            messages=messages,
         )
 
     async def repair(
@@ -386,6 +398,7 @@ Please implement this specification. Start by exploring the existing codebase to
                     success=False,
                     error=f"Claude API error: {e}",
                     iterations=iterations,
+                    messages=messages,
                 )
 
             stop_reason = response.get("stopReason", "")
@@ -401,6 +414,7 @@ Please implement this specification. Start by exploring the existing codebase to
                     files_changed=files_changed,
                     summary=text[:500] if text else "Repair complete",
                     iterations=iterations,
+                    messages=messages,
                 )
 
             if not tool_calls:
@@ -439,6 +453,7 @@ Please implement this specification. Start by exploring the existing codebase to
                     files_changed=files_changed,
                     summary=finish_summary,
                     iterations=iterations,
+                    messages=messages,
                 )
 
         return GenerationResult(
@@ -446,6 +461,7 @@ Please implement this specification. Start by exploring the existing codebase to
             error=f"Max iterations ({self.config.max_iterations}) reached during repair",
             files_changed=files_changed,
             iterations=iterations,
+            messages=messages,
         )
 
 
@@ -472,14 +488,16 @@ async def run_agentic_generation(
         GenerationResult with final status
     """
     def _populate_changed_files(out: GenerationResult) -> None:
-        """Attach full contents for changed files onto the result."""
+        """Attach full contents for ALL generated files onto the result."""
         try:
-            for p in out.files_changed:
-                if p in out.files:
-                    continue
-                content = workspace.read_file(p)
+            # Get ALL files from workspace (not just files_changed list)
+            # This ensures we capture everything the model wrote
+            all_files = workspace.get_all_files_content()
+            for path, content in all_files.items():
                 if content is not None:
-                    out.files[p] = content
+                    out.files[path] = content
+                    if path not in out.files_changed:
+                        out.files_changed.append(path)
         except Exception:
             # Best-effort only; never fail generation because we couldn't read back a file.
             pass
@@ -508,55 +526,35 @@ async def run_agentic_generation(
             _populate_changed_files(result)
             return result
 
-        # Run FAST pre-build validation first (catches common issues before npm ci)
+        # Run FAST pre-build validation (Python-based, catches common issues)
+        # NOTE: We skip npm-based validation here because the ECS container doesn't have Node.js.
+        # CodeBuild will do the real npm build after this returns successfully.
         from .prebuild_validator import validate_generated_files
-        from .validator_agent import ValidatorAgent
-        from .code_agent import FileChange
 
         # Get files from workspace
         all_files = workspace.get_all_files_content()
-        file_changes = [
-            FileChange(path=path, content=content, action="create")
-            for path, content in all_files.items()
-        ]
 
-        # Quick Python-based validation (< 1 second vs 3+ minutes for npm build)
+        # Quick Python-based validation (< 1 second)
         files_for_prebuild = [
-            {"path": fc.path, "content": fc.content}
-            for fc in file_changes
-            if fc.path.endswith(('.tsx', '.ts', '.jsx', '.js'))
+            {"path": path, "content": content}
+            for path, content in all_files.items()
+            if path.endswith(('.tsx', '.ts', '.jsx', '.js'))
         ]
         prebuild_result = validate_generated_files(files_for_prebuild)
+
         if not prebuild_result.valid:
-            # Prebuild failed - return error for quick retry without waiting for npm
-            result.success = False
-            result.error = f"Pre-build validation failed: {prebuild_result.to_error_string()}"
-            result.compile_output = prebuild_result.to_error_string()
-            _populate_changed_files(result)
-            return result
-
-        validator = ValidatorAgent()
-        try:
-            val_state = validator.create_initial_state(
-                file_changes=file_changes,
-                skeleton_path=template_path,
-                run_full_build=True,
-            )
-            val_result = await validator.run(val_state)
-
-            if val_result.success and val_result.data and val_result.data.is_valid:
-                result.compile_output = "Build succeeded"
-                _populate_changed_files(result)
-                return result
-
-            # Build failed - attempt repair
-            compile_errors = val_state.build_output or "Build failed"
+            # Prebuild failed - attempt repair
+            compile_errors = prebuild_result.to_error_string()
             result.compile_output = compile_errors
+
+            # Track messages across repair attempts for context continuity
+            current_messages = result.messages
 
             for attempt in range(config.max_repair_attempts):
                 repair_result = await coder.repair(
                     workspace=workspace,
                     compile_errors=compile_errors,
+                    previous_messages=current_messages,
                 )
 
                 if not repair_result.success:
@@ -566,35 +564,34 @@ async def run_agentic_generation(
 
                 result.files_changed.extend(repair_result.files_changed)
                 result.iterations += repair_result.iterations
+                # Update messages for next repair attempt (maintains conversation context)
+                current_messages = repair_result.messages
 
-                # Re-run validation
+                # Re-run prebuild validation
                 all_files = workspace.get_all_files_content()
-                file_changes = [
-                    FileChange(path=path, content=content, action="create")
+                files_for_prebuild = [
+                    {"path": path, "content": content}
                     for path, content in all_files.items()
+                    if path.endswith(('.tsx', '.ts', '.jsx', '.js'))
                 ]
+                prebuild_result = validate_generated_files(files_for_prebuild)
 
-                val_state = validator.create_initial_state(
-                    file_changes=file_changes,
-                    skeleton_path=template_path,
-                    run_full_build=True,
-                )
-                val_result = await validator.run(val_state)
-
-                if val_result.success and val_result.data and val_result.data.is_valid:
-                    result.compile_output = "Build succeeded after repair"
+                if prebuild_result.valid:
+                    result.compile_output = "Prebuild validation passed"
                     result.summary = f"Fixed in {attempt + 1} repair attempt(s)"
                     _populate_changed_files(result)
                     return result
 
-                compile_errors = val_state.build_output or "Build still failing"
+                compile_errors = prebuild_result.to_error_string()
                 result.compile_output = compile_errors
 
             # Max repair attempts reached
             result.success = False
-            result.error = f"Build still failing after {config.max_repair_attempts} repair attempts"
+            result.error = f"Prebuild validation still failing after {config.max_repair_attempts} repair attempts"
             _populate_changed_files(result)
             return result
 
-        finally:
-            validator.cleanup()
+        # Prebuild passed - return success, CodeBuild will do the real npm build
+        result.compile_output = "Prebuild validation passed"
+        _populate_changed_files(result)
+        return result

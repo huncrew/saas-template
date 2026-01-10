@@ -1,26 +1,26 @@
 # Frontend Development Context
-**Last Updated:** Fri  9 Jan 2026 19:12:45 GMT
-**Claude Session:** I don't have access to your current session ID. Session IDs are typically managed by the application or system you're using to interact with me, and that information isn't exposed to me within our conversation.
+**Last Updated:** Fri  9 Jan 2026 22:32:00 GMT
+**Claude Session:** I don't have access to information about your current session ID. Claude Code doesn't expose session identifiers to me within the conversation context.
 **Status:** Active Development
 
 ## Current Tasks
-b91f9433 Add real compile gate + mobile UI responsiveness
-456e7e11 Fix sticky chat panel and add build controls
-2fa276d2 feat: Add intelligent agent framework for flexible code generation
-0e5cbaf7 Final cleanup and test setup for deployment
-dcfab4cc Complete backend integration testing with API endpoints and dashboard enhancements
+dc425bbb feat(agentic-coder): add fast prebuild validation before npm build
+a5b1f6e6 fix(orchestrator): CRITICAL - fix multiple NameErrors that crash endpoints
+7ecf7122 fix(agentic-coder): CRITICAL - add base-skeleton template and fix template path
+eb26b48d feat(frontend): add live architecture diagrams to Architecture tab
+4806800c feat(orchestrator): add Mermaid diagram generation from spec
 
 ## Recent Changes
-frontend/src/app/api/ai/generate/route.ts
-frontend/src/app/api/factory/_mock.ts
-frontend/src/app/api/factory/builds/[buildId]/security/route.ts
-frontend/src/app/api/factory/projects/[projectId]/build-autonomous/route.ts
-frontend/src/app/api/factory/projects/[projectId]/chat/route.ts
-frontend/src/app/auth/error/page.tsx
-frontend/src/app/auth/signin/[[...rest]]/page.tsx
-frontend/src/app/auth/signup/[[...rest]]/page.tsx
-frontend/src/app/globals.css
-frontend/src/app/layout.tsx
+backend/orchestrator/factory/templates/base-skeleton/frontend/next-env.d.ts
+backend/orchestrator/factory/templates/base-skeleton/frontend/next.config.ts
+backend/orchestrator/factory/templates/base-skeleton/frontend/src/app/auth/layout.tsx
+backend/orchestrator/factory/templates/base-skeleton/frontend/src/app/auth/signin/page.tsx
+backend/orchestrator/factory/templates/base-skeleton/frontend/src/app/auth/signup/page.tsx
+backend/orchestrator/factory/templates/base-skeleton/frontend/src/app/dashboard/analytics/page.tsx
+backend/orchestrator/factory/templates/base-skeleton/frontend/src/app/dashboard/intelligence/page.tsx
+backend/orchestrator/factory/templates/base-skeleton/frontend/src/app/dashboard/layout.tsx
+backend/orchestrator/factory/templates/base-skeleton/frontend/src/app/dashboard/page.tsx
+backend/orchestrator/factory/templates/base-skeleton/frontend/src/app/dashboard/settings/page.tsx
 
 ## Integration Points Needed
 - [ ] Review backend API compatibility

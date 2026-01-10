@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useUser } from "@clerk/nextjs";
 import { toast } from "sonner";
 import { factoryApi } from "@/lib/factory-api";
@@ -55,6 +55,44 @@ export function FactoryChat({
     if (!onAutonomousBuildRequested) return;
     await onAutonomousBuildRequested(mode);
   }
+
+  // Hydrate chat from persisted backend history on first load.
+  useEffect(() => {
+    let cancelled = false;
+    async function loadHistory() {
+      try {
+        const res = await fetch(`/api/factory/projects/${projectId}/chat-history?limit=80`, {
+          cache: "no-store",
+        });
+        const j = await res.json();
+        const body = j?.data;
+        const msgs = body?.messages;
+        if (!res.ok || !Array.isArray(msgs)) return;
+
+        const hydrated: Message[] = msgs
+          .map((m: any) => ({
+            id: String(m?.message_id || `m_${Math.random().toString(16).slice(2)}`),
+            role: m?.role === "assistant" ? "assistant" : "user",
+            content: String(m?.content || ""),
+            createdAt: m?.created_at ? Date.parse(m.created_at) : Date.now(),
+          }))
+          .filter((m) => m.content.trim().length > 0);
+
+        if (!cancelled) {
+          setMessages(hydrated);
+        }
+      } catch (e) {
+        // Non-fatal: chat can still work without history hydration.
+        console.error("Failed to load chat history:", e);
+      }
+    }
+
+    // Only hydrate when we first mount / projectId changes.
+    loadHistory();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
 
   async function startPreviewBuild(autoTrigger = false) {
     if (isBuilding) return false;
